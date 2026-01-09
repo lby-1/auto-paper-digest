@@ -11,7 +11,13 @@ DATASET_ID = "brianxiadong0627/paper-digest-videos"
 
 def load_metadata():
     try:
-        path = hf_hub_download(repo_id=DATASET_ID, filename="metadata.json", repo_type="dataset")
+        # force_download=True ensures we always get the latest metadata
+        path = hf_hub_download(
+            repo_id=DATASET_ID,
+            filename="metadata.json",
+            repo_type="dataset",
+            force_download=True  # Disable cache to get latest data
+        )
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:

@@ -12,6 +12,10 @@
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
 
+<p align="center">
+  🎥 <strong>在线体验：</strong> <a href="https://huggingface.co/spaces/brianxiadong0627/paper-digest">https://huggingface.co/spaces/brianxiadong0627/paper-digest</a>
+</p>
+
 ---
 
 ## ✨ 功能亮点
