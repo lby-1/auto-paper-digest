@@ -161,6 +161,38 @@ apd publish-douyin --week 2026-01 --headful
 
 > 💡 **提示**：首次使用建议添加 `--headful` 参数观察发布过程，确认无误后可去掉该参数。
 
+---
+
+## 📅 按日处理（可选）
+
+除了按周处理外，也支持按日期处理论文：
+
+```bash
+# 获取指定日期的论文
+apd fetch --date 2026-01-08 --max 10
+
+# 上传并生成视频
+apd upload --date 2026-01-08 --headful --max 10
+
+# 下载视频
+apd download-video --date 2026-01-08 --headful
+
+# 发布到抖音
+apd publish-douyin --date 2026-01-08 --headful
+```
+
+> ⚠️ **注意**：周末和节假日没有论文，系统会提示错误而非继续处理。
+
+### 文件夹结构
+
+按日和按周的数据分开存放：
+- `data/pdfs/weekly/2026-01/` - 按周处理的 PDF
+- `data/pdfs/daily/2026-01-08/` - 按日处理的 PDF
+- `data/videos/weekly/2026-01/` - 按周处理的视频
+- `data/videos/daily/2026-01-08/` - 按日处理的视频
+
+---
+
 ### 🌐 门户网站
 
 视频发布后，可在 HuggingFace Spaces 门户网站直接观看：

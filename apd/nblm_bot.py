@@ -33,7 +33,7 @@ from .config import (
     VIDEO_DIR,
 )
 from .db import get_paper, update_status, upsert_paper
-from .utils import ensure_dir, get_logger, sanitize_filename
+from .utils import ensure_dir, get_logger, get_period_subdir, sanitize_filename
 
 logger = get_logger()
 
@@ -1018,7 +1018,7 @@ class NotebookLMBot:
                 return False
             
             # Download video
-            video_dir = ensure_dir(VIDEO_DIR / week_id)
+            video_dir = ensure_dir(VIDEO_DIR / get_period_subdir(week_id))
             
             result = self.download_video(paper_id, video_dir)
             if not result:
@@ -1272,7 +1272,7 @@ def download_videos_for_week(
             notebook_name = paper.notebooklm_note_name or f"{week_id}_{paper.paper_id}"
             
             # Check if video already exists (caching) using prefix matching
-            video_dir = ensure_dir(VIDEO_DIR / week_id)
+            video_dir = ensure_dir(VIDEO_DIR / get_period_subdir(week_id))
             
             # Find any existing video file with this paper_id as prefix
             existing_videos = list(video_dir.glob(f"{paper.paper_id}_*.mp4"))
@@ -1418,7 +1418,7 @@ def download_videos_for_week(
                     continue
                 
                 # Download video
-                video_dir = ensure_dir(VIDEO_DIR / week_id)
+                video_dir = ensure_dir(VIDEO_DIR / get_period_subdir(week_id))
                 
                 result = bot.download_video(paper.paper_id, video_dir)
                 if not result:

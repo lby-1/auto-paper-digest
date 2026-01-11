@@ -20,7 +20,7 @@ from .config import (
     USER_AGENT,
 )
 from .db import get_paper, update_status, upsert_paper
-from .utils import ensure_dir, get_logger, sha256_file
+from .utils import ensure_dir, get_logger, get_period_subdir, sha256_file
 
 logger = get_logger()
 
@@ -46,8 +46,9 @@ def download_pdf(
     # Check existing paper record
     paper = get_paper(paper_id)
     
-    # Determine PDF path
-    pdf_dir = ensure_dir(PDF_DIR / week_id)
+    # Determine PDF path using period subdir (weekly/ or daily/)
+    subdir = get_period_subdir(week_id)
+    pdf_dir = ensure_dir(PDF_DIR / subdir)
     pdf_path = pdf_dir / f"{paper_id}.pdf"
     
     # Check for existing file

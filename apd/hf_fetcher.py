@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 
 from .config import (
     ARXIV_PDF_URL,
+    HF_PAPERS_DATE_PAGE_URL,
     HF_PAPERS_DATE_URL,
     HF_PAPERS_URL,
     HF_PAPERS_WEEK_URL,
@@ -207,6 +208,158 @@ def fetch_papers_for_date(date: str, max_papers: Optional[int] = None) -> list[d
     
     logger.info(f"Found {len(papers)} papers for date {date}")
     return papers
+
+
+def fetch_papers_for_date_page(date: str, max_papers: Optional[int] = None) -> tuple[list[dict], str]:
+    """
+    Fetch papers from HF using the /date/ URL format.
+    
+    Uses https://huggingface.co/papers/date/YYYY-MM-DD
+    
+    Detects redirect: if no papers for this date, HF redirects to the previous date
+    with papers. This function returns both the papers and the actual date from
+    the response URL.
+    
+    Args:
+        date: Date string (YYYY-MM-DD)
+        max_papers: Maximum papers to fetch (None for all)
+        
+    Returns:
+        Tuple of (papers_list, actual_date) where actual_date may differ from input
+        if HF redirected to a different date
+        
+    Raises:
+        ValueError: If the date was redirected (no papers for this date)
+    """
+    url = HF_PAPERS_DATE_PAGE_URL.format(date=date)
+    logger.info(f"Fetching papers from date page: {url}")
+    
+    headers = {"User-Agent": USER_AGENT}
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch papers for {date}: {e}")
+        return [], date
+    
+    # Check if we were redirected (date has no papers)
+    final_url = response.url
+    actual_date = date
+    
+    # Extract date from response URL, format: /papers/date/YYYY-MM-DD
+    date_match = re.search(r"/papers/date/(\d{4}-\d{2}-\d{2})", final_url)
+    if date_match:
+        actual_date = date_match.group(1)
+    
+    if actual_date != date:
+        # Redirect occurred - this means the requested date has no papers
+        raise ValueError(
+            f"No papers found for {date}. This date may be a weekend or holiday. "
+            f"HuggingFace redirected to {actual_date}."
+        )
+    
+    soup = BeautifulSoup(response.text, "lxml")
+    papers = []
+    
+    # Find paper links - they're in article elements or links matching the pattern
+    paper_pattern = re.compile(r"^/papers/(\d{4}\.\d{4,5})$")
+    
+    for link in soup.find_all("a", href=paper_pattern):
+        href = link.get("href", "")
+        match = paper_pattern.match(href)
+        if not match:
+            continue
+            
+        paper_id = match.group(1)
+        
+        # Avoid duplicates
+        if any(p["paper_id"] == paper_id for p in papers):
+            continue
+        
+        # Try to get the title from the link text or parent
+        title = link.get_text(strip=True)
+        if not title or len(title) < 5:
+            parent = link.find_parent(["article", "div"])
+            if parent:
+                h3 = parent.find(["h3", "h2", "h1"])
+                if h3:
+                    title = h3.get_text(strip=True)
+        
+        hf_url = f"{HF_PAPERS_URL}/{paper_id}"
+        pdf_url = ARXIV_PDF_URL.format(paper_id=paper_id)
+        
+        papers.append({
+            "paper_id": paper_id,
+            "title": title or f"Paper {paper_id}",
+            "hf_url": hf_url,
+            "pdf_url": pdf_url,
+        })
+        
+        if max_papers and len(papers) >= max_papers:
+            break
+    
+    logger.info(f"Found {len(papers)} papers for date {actual_date}")
+    return papers, actual_date
+
+
+def fetch_daily_papers(
+    date_id: str,
+    max_papers: Optional[int] = None
+) -> list[dict]:
+    """
+    Fetch all papers for a given date and store in database.
+    
+    Uses the date page URL format (https://huggingface.co/papers/date/YYYY-MM-DD).
+    
+    Args:
+        date_id: Date identifier (YYYY-MM-DD format)
+        max_papers: Maximum total papers to fetch
+        
+    Returns:
+        List of paper dicts that were fetched
+        
+    Raises:
+        ValueError: If the date has no papers (redirected to different date)
+    """
+    logger.info(f"Fetching papers for date {date_id}")
+    
+    # Fetch papers from date page (this will raise ValueError if redirected)
+    papers_from_date, actual_date = fetch_papers_for_date_page(date_id, max_papers=max_papers)
+    
+    all_papers = []
+    seen_ids = set()
+    
+    for paper in papers_from_date:
+        paper_id = paper["paper_id"]
+        
+        if paper_id in seen_ids:
+            continue
+        seen_ids.add(paper_id)
+        
+        # Check if paper already exists in DB
+        existing = get_paper(paper_id)
+        if existing:
+            logger.debug(f"Paper {paper_id} already in database")
+            all_papers.append(paper)
+            continue
+        
+        # Insert new paper with date_id as the week_id
+        upsert_paper(
+            paper_id=paper_id,
+            week_id=date_id,  # Using date_id in the week_id field
+            title=paper["title"],
+            hf_url=paper["hf_url"],
+            pdf_url=paper["pdf_url"],
+        )
+        logger.info(f"Added paper: {paper_id} - {paper['title'][:50]}...")
+        all_papers.append(paper)
+        
+        if max_papers and len(all_papers) >= max_papers:
+            break
+    
+    logger.info(f"Total papers fetched for date {date_id}: {len(all_papers)}")
+    return all_papers
 
 
 def fetch_weekly_papers(

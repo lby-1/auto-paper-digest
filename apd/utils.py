@@ -159,3 +159,36 @@ def get_current_week_id() -> str:
     now = datetime.now()
     year, week, _ = now.isocalendar()
     return format_week_id(year, week)
+
+
+def is_date_format(period_id: str) -> bool:
+    """
+    Check if a period_id is a date format (YYYY-MM-DD) vs week format (YYYY-WW).
+    
+    Args:
+        period_id: The period identifier string
+        
+    Returns:
+        True if it's a date format (YYYY-MM-DD), False if week format
+    """
+    import re
+    # Date format: YYYY-MM-DD (e.g., 2026-01-08)
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    return bool(date_pattern.match(period_id))
+
+
+def get_period_subdir(period_id: str) -> str:
+    """
+    Get the subdirectory path for a period (weekly or daily).
+    
+    Args:
+        period_id: The period identifier (date or week)
+        
+    Returns:
+        Subdirectory path like "daily/2026-01-08" or "weekly/2026-01"
+    """
+    if is_date_format(period_id):
+        return f"daily/{period_id}"
+    else:
+        return f"weekly/{period_id}"
+

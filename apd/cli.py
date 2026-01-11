@@ -54,7 +54,12 @@ def main(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--week", "-w",
     default=None,
-    help="Week ID (e.g., 2026-01). Defaults to current week."
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-08). Fetch papers for a specific date."
 )
 @click.option(
     "--max", "-m",
@@ -63,28 +68,50 @@ def main(ctx: click.Context, debug: bool) -> None:
     type=int,
     help="Maximum papers to fetch (default: 50)"
 )
-def fetch(week: Optional[str], max_papers: int) -> None:
+def fetch(week: Optional[str], date: Optional[str], max_papers: int) -> None:
     """
-    Fetch papers from Hugging Face for a given week.
+    Fetch papers from Hugging Face for a given week or date.
     
-    Scrapes the HF daily papers pages and stores paper metadata
-    in the local database.
+    Use --week for weekly papers or --date for a specific date.
+    If neither is specified, defaults to current week.
+    
+    Note: Some dates (weekends/holidays) have no papers. If you specify
+    a date with no papers, an error will be shown.
     """
-    from .hf_fetcher import fetch_weekly_papers
+    from .hf_fetcher import fetch_daily_papers, fetch_weekly_papers
     
     logger = get_logger()
-    week_id = week or get_current_week_id()
     
-    click.echo(f"📚 Fetching papers for week {week_id}...")
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive. Use one or the other.", err=True)
+        sys.exit(1)
     
     try:
-        papers = fetch_weekly_papers(week_id, max_papers=max_papers)
-        click.echo(f"✅ Fetched {len(papers)} papers")
+        if date:
+            # Date-based fetching
+            click.echo(f"📚 Fetching papers for date {date}...")
+            papers = fetch_daily_papers(date, max_papers=max_papers)
+            click.echo(f"✅ Fetched {len(papers)} papers")
+            
+            # Show stats
+            total = count_papers(week_id=date)
+            click.echo(f"   Total papers in database for {date}: {total}")
+        else:
+            # Week-based fetching (default)
+            week_id = week or get_current_week_id()
+            click.echo(f"📚 Fetching papers for week {week_id}...")
+            papers = fetch_weekly_papers(week_id, max_papers=max_papers)
+            click.echo(f"✅ Fetched {len(papers)} papers")
+            
+            # Show stats
+            total = count_papers(week_id=week_id)
+            click.echo(f"   Total papers in database for {week_id}: {total}")
         
-        # Show stats
-        total = count_papers(week_id=week_id)
-        click.echo(f"   Total papers in database for {week_id}: {total}")
-        
+    except ValueError as e:
+        # Date has no papers (redirect detected)
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e:
         logger.exception("Fetch failed")
         click.echo(f"❌ Error: {e}", err=True)
@@ -286,7 +313,12 @@ def nblm(
 @click.option(
     "--week", "-w",
     default=None,
-    help="Week ID (e.g., 2026-01). Defaults to current week."
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-08). Process papers for a specific date."
 )
 @click.option(
     "--headful",
@@ -307,6 +339,7 @@ def nblm(
 )
 def upload(
     week: Optional[str],
+    date: Optional[str],
     headful: bool,
     max_papers: int,
     force: bool
@@ -314,10 +347,12 @@ def upload(
     """
     Phase 1: Fetch papers, download PDFs, upload to NotebookLM, trigger video generation.
     
+    Use --week for weekly papers or --date for a specific date.
+    
     Complete first phase of the two-phase workflow:
     1. Fetches papers from Hugging Face
     2. Downloads PDFs from arXiv
-    3. Creates notebooks named {week_id}_{paper_id}
+    3. Creates notebooks named {period_id}_{paper_id}
     4. Uploads PDF and waits for content to load
     5. Triggers video generation (doesn't wait for completion)
     
@@ -326,15 +361,27 @@ def upload(
     
     Use --force to re-process papers that have already been uploaded.
     """
-    from .hf_fetcher import fetch_weekly_papers
+    from .hf_fetcher import fetch_daily_papers, fetch_weekly_papers
     from .nblm_bot import upload_papers_for_week
     from .pdf_downloader import download_pdfs_for_week
     
     logger = get_logger()
-    week_id = week or get_current_week_id()
     headless = not headful
     
-    click.echo(f"🚀 Phase 1: Upload pipeline for week {week_id}")
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive. Use one or the other.", err=True)
+        sys.exit(1)
+    
+    # Determine period_id (date or week)
+    if date:
+        period_id = date
+        period_type = "date"
+    else:
+        period_id = week or get_current_week_id()
+        period_type = "week"
+    
+    click.echo(f"🚀 Phase 1: Upload pipeline for {period_type} {period_id}")
     click.echo(f"   Max papers: {max_papers}")
     if force:
         click.echo(f"   Force mode: ON (will re-process already uploaded papers)")
@@ -344,11 +391,14 @@ def upload(
         # Step 1: Fetch papers
         click.echo("=" * 50)
         click.echo("📚 Step 1: Fetching papers from Hugging Face...")
-        papers = fetch_weekly_papers(week_id, max_papers=max_papers)
+        if date:
+            papers = fetch_daily_papers(period_id, max_papers=max_papers)
+        else:
+            papers = fetch_weekly_papers(period_id, max_papers=max_papers)
         click.echo(f"   Fetched {len(papers)} papers")
         
         if not papers:
-            click.echo("⚠️  No papers found for this week.")
+            click.echo(f"⚠️  No papers found for this {period_type}.")
             return
         
         # Step 2: Download PDFs
@@ -356,7 +406,7 @@ def upload(
         click.echo("=" * 50)
         click.echo("📄 Step 2: Downloading PDFs from arXiv...")
         dl_success, dl_failure = download_pdfs_for_week(
-            week_id, force=force, max_papers=max_papers
+            period_id, force=force, max_papers=max_papers
         )
         click.echo(f"   Downloads: {dl_success} success, {dl_failure} failed")
         
@@ -364,10 +414,10 @@ def upload(
         click.echo()
         click.echo("=" * 50)
         click.echo("📤 Step 3: Uploading to NotebookLM & triggering video generation...")
-        click.echo(f"   Notebooks will be named: {week_id}_{{paper_id}}")
+        click.echo(f"   Notebooks will be named: {period_id}_{{paper_id}}")
         
         success, failure = upload_papers_for_week(
-            week_id=week_id,
+            week_id=period_id,
             headless=headless,
             max_papers=max_papers,
             force=force
@@ -381,8 +431,15 @@ def upload(
             click.echo()
             click.echo("💡 Videos are now generating in NotebookLM.")
             click.echo("   Wait a few minutes, then run:")
-            click.echo(f"   apd download-video --week {week_id}")
+            if date:
+                click.echo(f"   apd download-video --date {period_id}")
+            else:
+                click.echo(f"   apd download-video --week {period_id}")
             
+    except ValueError as e:
+        # Date has no papers (redirect detected)
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
     except KeyboardInterrupt:
         click.echo("\n⚠️  Upload interrupted by user")
         sys.exit(130)
@@ -400,7 +457,12 @@ def upload(
 @click.option(
     "--week", "-w",
     default=None,
-    help="Week ID (e.g., 2026-01). Defaults to current week."
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-08). Download videos for a specific date."
 )
 @click.option(
     "--headful",
@@ -421,6 +483,7 @@ def upload(
 )
 def download_video(
     week: Optional[str],
+    date: Optional[str],
     headful: bool,
     max_papers: Optional[int],
     force: bool
@@ -428,9 +491,11 @@ def download_video(
     """
     Download generated videos from NotebookLM.
     
+    Use --week for weekly papers or --date for a specific date.
+    
     Phase 2 of the two-phase workflow:
     1. Opens NotebookLM home page
-    2. Finds notebooks with {week_id}_ prefix
+    2. Finds notebooks with {period_id}_ prefix
     3. Checks if video is ready for each
     4. Downloads completed videos
     
@@ -439,16 +504,28 @@ def download_video(
     from .nblm_bot import download_videos_for_week
     
     logger = get_logger()
-    week_id = week or get_current_week_id()
     headless = not headful
+    
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive. Use one or the other.", err=True)
+        sys.exit(1)
+    
+    # Determine period_id (date or week)
+    if date:
+        period_id = date
+        period_type = "date"
+    else:
+        period_id = week or get_current_week_id()
+        period_type = "week"
     
     try:
         # Check how many papers are awaiting download
-        awaiting = count_papers(week_id=week_id, status=Status.NBLM_OK)
-        video_ok = count_papers(week_id=week_id, status=Status.VIDEO_OK)
+        awaiting = count_papers(week_id=period_id, status=Status.NBLM_OK)
+        video_ok = count_papers(week_id=period_id, status=Status.VIDEO_OK)
         
         if awaiting == 0 and (video_ok == 0 or not force):
-            click.echo(f"⚠️  No papers awaiting video download in week {week_id}")
+            click.echo(f"⚠️  No papers awaiting video download for {period_type} {period_id}")
             if video_ok > 0:
                 click.echo(f"   ({video_ok} videos already downloaded. Use --force to re-download)")
             else:
@@ -456,13 +533,13 @@ def download_video(
             return
         
         total = awaiting + (video_ok if force else 0)
-        click.echo(f"📥 Downloading videos for {total} papers in week {week_id}...")
+        click.echo(f"📥 Downloading videos for {total} papers in {period_type} {period_id}...")
         if force and video_ok > 0:
             click.echo(f"   (--force: will re-check {video_ok} already downloaded videos)")
         click.echo()
         
         success, failure, skipped = download_videos_for_week(
-            week_id=week_id,
+            week_id=period_id,
             headless=headless,
             max_papers=max_papers,
             force=force
@@ -877,7 +954,12 @@ def douyin_login() -> None:
 @click.option(
     "--week", "-w",
     default=None,
-    help="Week ID (e.g., 2026-01). Defaults to current week."
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-08). Publish videos for a specific date."
 )
 @click.option(
     "--paper-id", "-p",
@@ -895,12 +977,15 @@ def douyin_login() -> None:
 )
 def publish_douyin(
     week: Optional[str],
+    date: Optional[str],
     paper_id: Optional[str],
     force: bool,
     headful: bool
 ) -> None:
     """
     Publish videos to Douyin Creator Studio.
+    
+    Use --week for weekly papers or --date for a specific date.
     
     Phase 4 of the workflow:
     1. Authenticate using saved session
@@ -912,7 +997,19 @@ def publish_douyin(
     from .db import get_paper, list_papers
     
     logger = get_logger()
-    week_id = week or get_current_week_id()
+    
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive. Use one or the other.", err=True)
+        sys.exit(1)
+    
+    # Determine period_id (date or week)
+    if date:
+        period_id = date
+        period_type = "date"
+    else:
+        period_id = week or get_current_week_id()
+        period_type = "week"
     
     # Identify papers to publish
     if paper_id:
@@ -921,11 +1018,11 @@ def publish_douyin(
             click.echo(f"❌ Paper {paper_id} not found in database.", err=True)
             sys.exit(1)
     else:
-        # Publish all papers for the week that have videos
-        papers = list_papers(week_id=week_id, status=Status.VIDEO_OK)
+        # Publish all papers for the period that have videos
+        papers = list_papers(week_id=period_id, status=Status.VIDEO_OK)
         
     if not papers:
-        click.echo(f"⚠️  No papers with videos found for week {week_id}.")
+        click.echo(f"⚠️  No papers with videos found for {period_type} {period_id}.")
         click.echo("   Run 'apd download-video' first.")
         return
         
