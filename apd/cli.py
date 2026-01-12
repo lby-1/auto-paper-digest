@@ -1059,7 +1059,7 @@ def publish_douyin(
             # Skip login check since we already verified at the start
             if bot.publish_video(
                 video_path=video_path,
-                title=f"AI Paper Review: {paper.title}"[:50], # Douyin title limit
+                title=paper.title[:30],  # Douyin title limit is 30 chars
                 description=description,
                 tags=tags,
                 skip_login_check=True  # Skip login check for batch publishing
