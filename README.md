@@ -16,6 +16,23 @@
   🎥 <strong>在线体验：</strong> <a href="https://huggingface.co/spaces/brianxiadong0627/paper-digest">https://huggingface.co/spaces/brianxiadong0627/paper-digest</a>
 </p>
 
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <h3>📱 关注抖音，获取最新 AI 论文解读视频！</h3>
+      <img src="douyin.jpg" alt="抖音二维码" width="280"/>
+      <br><br>
+      <strong>🔥 最新AI论文，每周更新</strong>
+      <br>
+      <sub>扫码关注，第一时间获取精彩内容</sub>
+    </td>
+  </tr>
+</table>
+
+<br>
+
 ---
 
 ## ✨ 功能亮点
