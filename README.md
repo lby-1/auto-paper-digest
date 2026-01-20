@@ -1,35 +1,20 @@
 # 🚀 Auto Paper Digest (APD)
 
+> **原项目地址**: [https://github.com/brianxiadong/auto-paper-digest](https://github.com/brianxiadong/auto-paper-digest)
+> 本仓库为 Fork 版本，在原项目基础上扩展了多源内容获取和多平台发布功能。
+
 <p align="center">
-  <strong>自动获取 AI 前沿论文 → 下载 PDF → 生成视频讲解 → 发布到 HuggingFace/抖音 → 门户网站展示</strong>
+  <strong>自动获取多源内容 → 生成视频讲解 → 多平台发布 → 门户网站展示</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/NotebookLM-Automation-orange.svg" alt="NotebookLM">
   <img src="https://img.shields.io/badge/HuggingFace-Spaces-yellow.svg" alt="HuggingFace">
+  <img src="https://img.shields.io/badge/Bilibili-Creator-00A1D6.svg" alt="Bilibili">
   <img src="https://img.shields.io/badge/Douyin-Creator-ff0050.svg" alt="Douyin">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
-
-<p align="center">
-  🎥 <strong>在线体验：</strong> <a href="https://huggingface.co/spaces/brianxiadong0627/paper-digest">https://huggingface.co/spaces/brianxiadong0627/paper-digest</a>
-</p>
-
-<br>
-
-<table align="center">
-  <tr>
-    <td align="center">
-      <h3>📱 关注抖音，获取最新 AI 论文解读视频！</h3>
-      <img src="douyin.jpg" alt="抖音二维码" width="280"/>
-      <br><br>
-      <strong>🔥 最新AI论文，每周更新</strong>
-      <br>
-      <sub>扫码关注，第一时间获取精彩内容</sub>
-    </td>
-  </tr>
-</table>
 
 <br>
 
@@ -47,6 +32,56 @@
 | 🌐 **门户网站** | Gradio 门户网站，在线播放视频 |
 | 💾 **断点续传** | SQLite 状态追踪，支持中断后继续 |
 | 🔐 **登录复用** | Google/抖音/B站登录状态持久化，一次登录长期使用 |
+
+---
+
+## 🆕 本次更新内容 (v2.0)
+
+### 新增功能
+
+#### 1️⃣ 多源内容获取
+- ✅ **GitHub Trending**：获取热门开源项目，支持按编程语言过滤
+- ✅ **热榜新闻**：支持微博热搜、知乎热榜、百度热搜
+- ✅ **灵活日期处理**：所有命令支持 `--week` 和 `--date` 参数
+
+#### 2️⃣ B站创作者平台集成
+- ✅ 二维码扫码登录
+- ✅ 视频自动上传和信息填写
+- ✅ 半自动发布模式（默认）：填写完成后暂停，等待用户手动点击发布
+
+#### 3️⃣ 半自动发布模式
+- ✅ **安全发布**：脚本完成上传和信息填写后暂停
+- ✅ **人工确认**：用户在浏览器中检查无误后手动点击发布按钮
+- ✅ **避免误发**：防止自动化导致的错误或违规发布
+- ✅ **双平台支持**：抖音和B站均支持半自动模式
+
+#### 4️⃣ 数据库增强
+- ✅ 内容类型：`PAPER` / `GITHUB` / `NEWS`
+- ✅ 平台发布状态追踪：`bilibili_published` / `douyin_published`
+- ✅ GitHub 项目信息：stars、language、description
+- ✅ 新闻信息：source、url
+
+### 新增命令
+
+```bash
+# 内容获取
+apd fetch-news --date 2026-01-20 --source weibo    # 获取热榜新闻
+apd fetch-github --date 2026-01-20 --language python  # 获取 GitHub Trending
+
+# 平台登录
+apd bilibili-login                                   # B站创作者登录
+
+# 内容发布
+apd publish-bilibili --date 2026-01-20 --headful   # B站发布（半自动）
+apd publish-douyin --date 2026-01-20 --headful     # 抖音发布（半自动）
+```
+
+### 技术亮点
+
+- 🎯 **模块化设计**：独立的爬虫模块（`github_fetcher.py`, `news_fetcher.py`）
+- 🔒 **安全发布**：半自动模式避免自动化风险
+- 📊 **类型系统**：ContentType 枚举支持多源内容
+- 🗃️ **向后兼容**：数据库迁移保持现有数据完整性
 
 ---
 
