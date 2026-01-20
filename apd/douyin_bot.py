@@ -164,16 +164,28 @@ class DouyinBot:
         except:
             return False
 
-    def publish_video(self, video_path: Path, title: str, description: str, tags: list[str] = None, skip_login_check: bool = False):
+    def publish_video(
+        self,
+        video_path: Path,
+        title: str,
+        description: str,
+        tags: list[str] = None,
+        skip_login_check: bool = False,
+        auto_publish: bool = False
+    ):
         """
-        Publishes a video to Douyin.
-        
+        Publishes a video to Douyin (semi-automatic mode by default).
+
         Args:
             video_path: Path to the video file
             title: Video title (max 30 chars for Douyin)
             description: Video description
             tags: List of hashtags
             skip_login_check: Skip login verification (useful for batch publishing)
+            auto_publish: Auto-click publish button (default False, requires manual click)
+
+        Returns:
+            True if video info filled successfully, False otherwise
         """
         if not skip_login_check and not self.is_logged_in():
             logger.error("Not logged into Douyin. Run 'apd douyin-login' first.")
@@ -334,104 +346,119 @@ class DouyinBot:
         except:
             pass
         
-        # 6. Click Publish
-        logger.info("Clicking Publish button...")
-        publish_clicked = False
-        
-        # Scroll down to make sure publish button is visible
-        logger.info("Scrolling down to find publish button...")
-        try:
-            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            self.page.wait_for_timeout(500)
-        except:
-            pass
-        
-        # Dismiss any popups that might have appeared
-        self.dismiss_popups()
-        
-        try:
-            # Try multiple selectors for the publish button (prioritize more specific ones)
-            publish_selectors = [
-                'button[class*="primary-"]:has-text("发布")',  # Primary styled button
-                'button.button-dhlUZE.primary-cECiOJ',  # Specific class from browser inspection
-                'button:has-text("发布")',
-                'button.primary:has-text("发布")',
-                'div[class*="publish"] button',
-                'button[class*="primary"]',
-            ]
-            
-            for selector in publish_selectors:
-                try:
-                    publish_btn = self.page.locator(selector).first
-                    
-                    # Wait for it to be visible
-                    if publish_btn.is_visible(timeout=3000):
-                        # Scroll the button into view
-                        publish_btn.scroll_into_view_if_needed()
-                        self.page.wait_for_timeout(300)
-                        
-                        # Wait for button to be enabled
-                        max_wait = 30  # Wait up to 30 seconds
-                        for i in range(max_wait):
-                            if not publish_btn.is_disabled():
-                                break
-                            logger.info(f"Publish button is disabled, waiting... ({i+1}/{max_wait}s)")
-                            self.page.wait_for_timeout(1000)
-                        
-                        # Click the button
-                        publish_btn.click()
-                        publish_clicked = True
-                        logger.info(f"Publish button clicked using selector: {selector}")
-                        break
-                except Exception as e:
-                    logger.debug(f"Selector {selector} failed: {e}")
-                    continue
-            
-            if not publish_clicked:
-                # Last resort: try to find any button with "发布" text
-                logger.info("Trying to find any button with 发布 text...")
-                all_buttons = self.page.locator('button').all()
-                for btn in all_buttons:
-                    try:
-                        btn_text = btn.text_content()
-                        if btn_text and '发布' in btn_text:
-                            btn.click()
-                            publish_clicked = True
-                            logger.info(f"Clicked button with text: {btn_text}")
-                            break
-                    except:
-                        continue
-                        
-        except Exception as e:
-            logger.error(f"Error while trying to click publish: {e}")
-        
-        if not publish_clicked:
-            logger.error("Failed to click publish button")
-            # Take screenshot for debugging
+        # 6. Click Publish or wait for manual publish
+        if auto_publish:
+            logger.info("Auto-publish mode: Clicking Publish button...")
+            publish_clicked = False
+
+            # Scroll down to make sure publish button is visible
+            logger.info("Scrolling down to find publish button...")
             try:
-                self.page.screenshot(path="douyin_publish_error.png")
-                logger.info("Screenshot saved to douyin_publish_error.png")
+                self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                self.page.wait_for_timeout(500)
             except:
                 pass
-            return False
-        
-        # 7. Wait for success message or redirect
-        logger.info("Waiting for publish confirmation...")
-        try:
-            # Success indicator often has "发布成功"
-            self.page.wait_for_selector('text="发布成功"', timeout=30000)
-            logger.info("Successfully published to Douyin!")
-            # Wait a bit before processing next video
-            self.page.wait_for_timeout(3000)
-            return True
-        except:
-            # Check for redirect to manage page
-            self.page.wait_for_timeout(5000)
-            current_url = self.page.url
-            if "manage" in current_url or "video" in current_url or "content" in current_url:
-                logger.info(f"Detected redirect to {current_url}, assuming publish success.")
+
+            # Dismiss any popups that might have appeared
+            self.dismiss_popups()
+
+            try:
+                # Try multiple selectors for the publish button (prioritize more specific ones)
+                publish_selectors = [
+                    'button[class*="primary-"]:has-text("发布")',  # Primary styled button
+                    'button.button-dhlUZE.primary-cECiOJ',  # Specific class from browser inspection
+                    'button:has-text("发布")',
+                    'button.primary:has-text("发布")',
+                    'div[class*="publish"] button',
+                    'button[class*="primary"]',
+                ]
+
+                for selector in publish_selectors:
+                    try:
+                        publish_btn = self.page.locator(selector).first
+
+                        # Wait for it to be visible
+                        if publish_btn.is_visible(timeout=3000):
+                            # Scroll the button into view
+                            publish_btn.scroll_into_view_if_needed()
+                            self.page.wait_for_timeout(300)
+
+                            # Wait for button to be enabled
+                            max_wait = 30  # Wait up to 30 seconds
+                            for i in range(max_wait):
+                                if not publish_btn.is_disabled():
+                                    break
+                                logger.info(f"Publish button is disabled, waiting... ({i+1}/{max_wait}s)")
+                                self.page.wait_for_timeout(1000)
+
+                            # Click the button
+                            publish_btn.click()
+                            publish_clicked = True
+                            logger.info(f"Publish button clicked using selector: {selector}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Selector {selector} failed: {e}")
+                        continue
+
+                if not publish_clicked:
+                    # Last resort: try to find any button with "发布" text
+                    logger.info("Trying to find any button with 发布 text...")
+                    all_buttons = self.page.locator('button').all()
+                    for btn in all_buttons:
+                        try:
+                            btn_text = btn.text_content()
+                            if btn_text and '发布' in btn_text:
+                                btn.click()
+                                publish_clicked = True
+                            logger.info(f"Clicked button with text: {btn_text}")
+                            break
+                        except:
+                            continue
+
+            except Exception as e:
+                logger.error(f"Error while trying to click publish: {e}")
+
+            if not publish_clicked:
+                logger.error("Failed to click publish button")
+                # Take screenshot for debugging
+                try:
+                    self.page.screenshot(path="douyin_publish_error.png")
+                    logger.info("Screenshot saved to douyin_publish_error.png")
+                except:
+                    pass
+                return False
+
+            # 7. Wait for success message or redirect
+            logger.info("Waiting for publish confirmation...")
+            try:
+                # Success indicator often has "发布成功"
+                self.page.wait_for_selector('text="发布成功"', timeout=30000)
+                logger.info("Successfully published to Douyin!")
                 # Wait a bit before processing next video
-                self.page.wait_for_timeout(2000)
+                self.page.wait_for_timeout(3000)
                 return True
-            logger.warning("Could not confirm publish success.")
-            return False
+            except:
+                # Check for redirect to manage page
+                self.page.wait_for_timeout(5000)
+                current_url = self.page.url
+                if "manage" in current_url or "video" in current_url or "content" in current_url:
+                    logger.info(f"Detected redirect to {current_url}, assuming publish success.")
+                    # Wait a bit before processing next video
+                    self.page.wait_for_timeout(2000)
+                    return True
+                logger.warning("Could not confirm publish success.")
+                return False
+
+        else:
+            # Semi-automatic mode: wait for user to manually click publish
+            logger.info("=" * 60)
+            logger.info("✅ 视频信息已填写完成！")
+            logger.info("📌 请在浏览器中检查视频信息，确认无误后手动点击【发布】按钮")
+            logger.info("⏸️  脚本已暂停，浏览器保持打开状态...")
+            logger.info("=" * 60)
+
+            # Wait for user confirmation
+            input("\n按回车键继续（发布完成后）...")
+            logger.info("✅ User confirmed publish")
+
+            return True

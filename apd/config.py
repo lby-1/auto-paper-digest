@@ -43,6 +43,23 @@ ARXIV_PDF_URL = "https://export.arxiv.org/pdf/{paper_id}.pdf"
 # NotebookLM
 NOTEBOOKLM_URL = "https://notebooklm.google.com"
 
+# GitHub Trending
+GITHUB_TRENDING_URL = "https://github.com/trending"
+GITHUB_TRENDING_LANGUAGE_URL = "https://github.com/trending/{language}"
+GITHUB_API_URL = "https://api.github.com"
+
+# 新闻源 URLs
+NEWS_SOURCES = {
+    "weibo": "https://s.weibo.com/top/summary",
+    "zhihu": "https://www.zhihu.com/hot",
+    "baidu": "https://top.baidu.com/board?tab=realtime",
+}
+
+# B站
+BILIBILI_LOGIN_URL = "https://passport.bilibili.com/login"
+BILIBILI_CREATOR_URL = "https://member.bilibili.com/platform/upload/video/frame"
+BILIBILI_AUTH_PATH = DATA_DIR / ".bilibili_auth.json"
+
 # =============================================================================
 # Defaults
 # =============================================================================
@@ -85,6 +102,13 @@ class Status:
     NBLM_OK = "NBLM_OK"  # Notebook created, PDF uploaded
     VIDEO_OK = "VIDEO_OK"
     ERROR = "ERROR"
+
+
+class ContentType:
+    """Content type values."""
+    PAPER = "PAPER"      # 学术论文
+    GITHUB = "GITHUB"    # GitHub 项目
+    NEWS = "NEWS"        # 新闻热点
 
 
 def ensure_directories() -> None:

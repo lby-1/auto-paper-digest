@@ -85,9 +85,11 @@ def _build_week_id_clause(week_id: str) -> tuple[str, list]:
 
 @dataclass
 class Paper:
-    """Represents a paper record in the database."""
+    """Represents a paper/content record in the database."""
     paper_id: str
     week_id: str
+
+    # 基础字段
     title: Optional[str] = None
     hf_url: Optional[str] = None
     pdf_url: Optional[str] = None
@@ -97,6 +99,25 @@ class Paper:
     video_path: Optional[str] = None
     slides_path: Optional[str] = None
     summary: Optional[str] = None
+
+    # 新增：内容类型和源
+    content_type: str = "PAPER"  # PAPER/GITHUB/NEWS
+    source_url: Optional[str] = None  # 通用源 URL
+
+    # 新增：GitHub 相关字段
+    github_stars: Optional[int] = None
+    github_language: Optional[str] = None
+    github_description: Optional[str] = None
+
+    # 新增：新闻相关字段
+    news_source: Optional[str] = None  # weibo/zhihu/baidu
+    news_url: Optional[str] = None
+
+    # 新增：发布状态
+    bilibili_published: int = 0  # 0=未发布, 1=已发布
+    douyin_published: int = 0    # 0=未发布, 1=已发布
+
+    # 状态字段
     status: str = Status.NEW
     retry_count: int = 0
     last_error: Optional[str] = None
@@ -165,7 +186,58 @@ def init_db() -> None:
             cursor.execute("ALTER TABLE papers ADD COLUMN summary TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
+        # === 新增字段迁移 ===
+
+        # 内容类型和源
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN content_type TEXT DEFAULT 'PAPER'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN source_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # GitHub 相关字段
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN github_stars INTEGER")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN github_language TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN github_description TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # 新闻相关字段
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN news_source TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN news_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # 发布状态字段
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN bilibili_published INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN douyin_published INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
         # Create indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_papers_week 
@@ -221,31 +293,42 @@ def upsert_paper(
     summary: Optional[str] = None,
     status: Optional[str] = None,
     last_error: Optional[str] = None,
+    # 新增参数
+    content_type: Optional[str] = None,
+    source_url: Optional[str] = None,
+    github_stars: Optional[int] = None,
+    github_language: Optional[str] = None,
+    github_description: Optional[str] = None,
+    news_source: Optional[str] = None,
+    news_url: Optional[str] = None,
+    bilibili_published: Optional[int] = None,
+    douyin_published: Optional[int] = None,
 ) -> Paper:
     """
-    Insert or update a paper record.
-    
+    Insert or update a paper/content record.
+
     Only updates fields that are explicitly provided (not None).
-    
+
     Args:
-        paper_id: The paper ID (arXiv ID)
-        week_id: Week identifier
+        paper_id: The content ID (arXiv ID, GitHub repo, news ID, etc.)
+        week_id: Week/date identifier
+        content_type: Content type (PAPER/GITHUB/NEWS)
         Other args: Optional fields to set/update
-        
+
     Returns:
         The updated Paper object
     """
     existing = get_paper(paper_id)
     now = now_iso()
-    
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        
+
         if existing:
             # Build UPDATE query dynamically for non-None fields
             updates = []
             values = []
-            
+
             if title is not None:
                 updates.append("title = ?")
                 values.append(title)
@@ -279,15 +362,44 @@ def upsert_paper(
             if last_error is not None:
                 updates.append("last_error = ?")
                 values.append(last_error)
-            
+
+            # 新增字段更新
+            if content_type is not None:
+                updates.append("content_type = ?")
+                values.append(content_type)
+            if source_url is not None:
+                updates.append("source_url = ?")
+                values.append(source_url)
+            if github_stars is not None:
+                updates.append("github_stars = ?")
+                values.append(github_stars)
+            if github_language is not None:
+                updates.append("github_language = ?")
+                values.append(github_language)
+            if github_description is not None:
+                updates.append("github_description = ?")
+                values.append(github_description)
+            if news_source is not None:
+                updates.append("news_source = ?")
+                values.append(news_source)
+            if news_url is not None:
+                updates.append("news_url = ?")
+                values.append(news_url)
+            if bilibili_published is not None:
+                updates.append("bilibili_published = ?")
+                values.append(bilibili_published)
+            if douyin_published is not None:
+                updates.append("douyin_published = ?")
+                values.append(douyin_published)
+
             updates.append("updated_at = ?")
             values.append(now)
             values.append(paper_id)
-            
+
             if updates:
                 query = f"UPDATE papers SET {', '.join(updates)} WHERE paper_id = ?"
                 cursor.execute(query, values)
-                
+
             logger.debug(f"Updated paper: {paper_id}")
         else:
             # INSERT new record
@@ -295,15 +407,19 @@ def upsert_paper(
                 INSERT INTO papers (
                     paper_id, week_id, title, hf_url, pdf_url, pdf_path,
                     pdf_sha256, notebooklm_note_name, video_path, slides_path, summary, status,
-                    retry_count, last_error, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    retry_count, last_error, updated_at,
+                    content_type, source_url, github_stars, github_language, github_description,
+                    news_source, news_url, bilibili_published, douyin_published
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 paper_id, week_id, title, hf_url, pdf_url, pdf_path,
                 pdf_sha256, notebooklm_note_name, video_path, slides_path, summary,
-                status or Status.NEW, 0, last_error, now
+                status or Status.NEW, 0, last_error, now,
+                content_type or "PAPER", source_url, github_stars, github_language, github_description,
+                news_source, news_url, bilibili_published or 0, douyin_published or 0
             ))
             logger.debug(f"Inserted paper: {paper_id}")
-    
+
     return get_paper(paper_id)  # type: ignore
 
 

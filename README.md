@@ -39,14 +39,14 @@
 
 | 功能 | 说明 |
 |------|------|
-| 📚 **论文获取** | 自动抓取 Hugging Face 每周热门 AI 论文（支持周 URL） |
+| 📚 **多源内容获取** | 支持 HuggingFace 论文、GitHub Trending、热榜新闻（微博/知乎/百度） |
 | 📄 **PDF 下载** | 从 arXiv 下载论文 PDF（幂等操作，SHA256 校验） |
-| 🎬 **视频生成** | 通过 NotebookLM 自动生成论文视频讲解 |
+| 🎬 **视频生成** | 通过 NotebookLM 自动生成视频讲解 |
 | 📤 **自动发布** | 上传视频到 HuggingFace Dataset |
-| 📱 **抖音发布** | 自动发布视频到抖音创作者平台 |
+| 📱 **多平台发布** | 支持抖音和B站创作者平台（半自动发布模式） |
 | 🌐 **门户网站** | Gradio 门户网站，在线播放视频 |
 | 💾 **断点续传** | SQLite 状态追踪，支持中断后继续 |
-| 🔐 **登录复用** | Google/抖音登录状态持久化，一次登录长期使用 |
+| 🔐 **登录复用** | Google/抖音/B站登录状态持久化，一次登录长期使用 |
 
 ---
 
@@ -222,29 +222,111 @@ https://huggingface.co/spaces/your-username/paper-digest
 
 ## 📖 命令大全
 
+### 登录命令
 | 命令 | 说明 |
 |------|------|
 | `apd login` | 打开浏览器完成 Google 登录（NotebookLM） |
 | `apd douyin-login` | 打开浏览器完成抖音登录 |
-| `apd fetch` | 仅获取论文列表（不下载） |
+| `apd bilibili-login` | 打开浏览器完成B站创作者登录（扫码） |
+
+### 内容获取命令
+| 命令 | 说明 |
+|------|------|
+| `apd fetch` | 获取 HuggingFace 论文列表 |
+| `apd fetch-news` | 获取热榜新闻（微博/知乎/百度） |
+| `apd fetch-github` | 获取 GitHub Trending 项目 |
+
+### 处理与发布命令
+| 命令 | 说明 |
+|------|------|
 | `apd download` | 仅下载 PDF（支持缓存） |
 | `apd upload` | **Phase 1**：获取 + 下载 + 上传 + 触发生成 |
 | `apd download-video` | **Phase 2**：下载已生成的视频（支持缓存） |
 | `apd publish` | **Phase 3**：发布到 HuggingFace |
-| `apd publish-douyin` | **Phase 3b**：发布到抖音创作者平台 |
+| `apd publish-douyin` | **Phase 3b**：发布到抖音（半自动模式） |
+| `apd publish-bilibili` | **Phase 3c**：发布到B站（半自动模式） |
+
+### 其他命令
+| 命令 | 说明 |
+|------|------|
 | `apd digest` | 生成本地周报 |
 | `apd run` | 完整流程（一键执行，需等待视频生成） |
-| `apd status` | 查看论文处理状态 |
+| `apd status` | 查看内容处理状态 |
 
 ### 常用参数
 
 ```bash
---week, -w     指定周 ID（如 2026-01），默认当前周
---max, -m      最大论文数量
---headful      显示浏览器窗口（调试时使用）
---force, -f    强制重新处理（忽略缓存）
---debug        开启调试日志
+--week, -w        指定周 ID（如 2026-01），默认当前周
+--date, -d        指定日期（如 2026-01-20），按日期处理
+--max, -m         最大内容数量
+--headful         显示浏览器窗口（调试时使用）
+--force, -f       强制重新处理（忽略缓存）
+--auto-publish    自动点击发布按钮（默认半自动模式）
+--debug           开启调试日志
 ```
+
+---
+
+## 🌟 多源内容获取
+
+### 获取 GitHub Trending
+
+```bash
+# 获取当日 GitHub Trending 项目
+apd fetch-github --date 2026-01-20 --max 20
+
+# 按周获取，指定编程语言
+apd fetch-github --week 2026-03 --language python --since weekly
+
+# 支持的时间范围：daily, weekly, monthly
+apd fetch-github --date 2026-01-20 --since monthly --max 30
+```
+
+### 获取热榜新闻
+
+```bash
+# 获取微博热搜
+apd fetch-news --date 2026-01-20 --source weibo --max 50
+
+# 获取知乎热榜
+apd fetch-news --date 2026-01-20 --source zhihu --max 30
+
+# 获取百度热搜
+apd fetch-news --date 2026-01-20 --source baidu --max 50
+
+# 按周获取（使用当前日期标识）
+apd fetch-news --week 2026-03 --source weibo
+```
+
+### 多平台发布
+
+#### 发布到抖音（半自动模式）
+
+```bash
+# 首次登录
+apd douyin-login
+
+# 半自动发布：脚本填写信息，用户手动点击发布
+apd publish-douyin --date 2026-01-20 --headful
+
+# 自动发布（不推荐）
+apd publish-douyin --date 2026-01-20 --headful --auto-publish
+```
+
+#### 发布到B站（半自动模式）
+
+```bash
+# 首次登录
+apd bilibili-login
+
+# 半自动发布：脚本上传并填写信息，暂停等待用户手动发布
+apd publish-bilibili --date 2026-01-20 --headful
+
+# 自动发布（不推荐）
+apd publish-bilibili --date 2026-01-20 --headful --auto-publish
+```
+
+> 💡 **半自动模式说明**：默认情况下，脚本会完成视频上传和信息填写，然后暂停等待用户检查并手动点击发布按钮。这样可以在发布前进行最后确认，避免错误发布。
 
 ---
 
@@ -256,10 +338,13 @@ auto-paper-digest/
 │   ├── cli.py              # 命令行入口
 │   ├── config.py           # 配置常量
 │   ├── db.py               # SQLite 数据库
-│   ├── hf_fetcher.py       # HF 论文抓取（支持周 URL）
+│   ├── hf_fetcher.py       # HF 论文抓取
+│   ├── github_fetcher.py   # GitHub Trending 爬虫（新增）
+│   ├── news_fetcher.py     # 热榜新闻爬虫（新增）
 │   ├── pdf_downloader.py   # PDF 下载器
 │   ├── nblm_bot.py         # NotebookLM 自动化
 │   ├── douyin_bot.py       # 抖音创作者平台自动化
+│   ├── bilibili_bot.py     # B站创作者平台自动化（新增）
 │   ├── publisher.py        # HuggingFace 发布
 │   ├── digest.py           # 周报生成
 │   └── utils.py            # 工具函数
@@ -270,10 +355,14 @@ auto-paper-digest/
 ├── data/
 │   ├── apd.db              # SQLite 数据库
 │   ├── .douyin_auth.json   # 抖音登录状态
-│   ├── pdfs/               # 下载的 PDF（按周分目录）
-│   ├── videos/             # 生成的视频（按周分目录）
+│   ├── .bilibili_auth.json # B站登录状态（新增）
+│   ├── pdfs/               # 下载的 PDF（按周/日期分目录）
+│   ├── videos/             # 生成的视频（按周/日期分目录）
 │   ├── digests/            # 周报文件
 │   └── profiles/           # 浏览器配置（含登录态）
+├── CLAUDE.md               # AI 助手开发文档
+├── CLAUDE_CN.md            # AI 助手开发文档（中文）
+├── EXTENSION_PLAN.md       # 扩展计划文档
 ├── .env.example            # 环境变量模板
 └── pyproject.toml
 ```

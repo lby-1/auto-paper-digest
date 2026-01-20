@@ -975,12 +975,18 @@ def douyin_login() -> None:
     is_flag=True,
     help="Run in headful mode (visible browser)."
 )
+@click.option(
+    "--auto-publish",
+    is_flag=True,
+    help="Automatically click publish button (default: manual publish)."
+)
 def publish_douyin(
     week: Optional[str],
     date: Optional[str],
     paper_id: Optional[str],
     force: bool,
-    headful: bool
+    headful: bool,
+    auto_publish: bool
 ) -> None:
     """
     Publish videos to Douyin Creator Studio.
@@ -1065,7 +1071,8 @@ def publish_douyin(
                 title=paper.title[:30],  # Douyin title limit is 30 chars
                 description=description,
                 tags=tags,
-                skip_login_check=True  # Skip login check for batch publishing
+                skip_login_check=True,  # Skip login check for batch publishing
+                auto_publish=auto_publish  # Use the --auto-publish flag
             ):
                 click.echo(f"✅ Successfully published {paper.paper_id}!")
                 success_count += 1
@@ -1076,6 +1083,358 @@ def publish_douyin(
         click.echo(f"🎉 Douyin publish complete: {success_count}/{total_papers} successful.")
 
 
+# =============================================================================
+# 新增命令：新闻获取
+# =============================================================================
+
+@main.command("fetch-news")
+@click.option(
+    "--week", "-w",
+    default=None,
+    help="Week ID (e.g., 2026-01)."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (YYYY-MM-DD), e.g., 2026-01-20. Fetches hot news for that date."
+)
+@click.option(
+    "--max", "-m",
+    "max_news",
+    default=50,
+    type=int,
+    help="Maximum news to fetch (default: 50)"
+)
+@click.option(
+    "--source", "-s",
+    default="weibo",
+    type=click.Choice(["weibo", "zhihu", "baidu"]),
+    help="News source (default: weibo)"
+)
+def fetch_news(week: Optional[str], date: Optional[str], max_news: int, source: str) -> None:
+    """
+    Fetch hot news from Chinese news sources.
+
+    Supports: weibo (微博热搜), zhihu (知乎热榜), baidu (百度热搜)
+
+    Examples:
+        apd fetch-news --date 2026-01-20 --source weibo
+        apd fetch-news --week 2026-03 --source zhihu --max 20
+    """
+    from .news_fetcher import fetch_daily_news, fetch_weekly_news
+
+    logger = get_logger()
+
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive.", err=True)
+        sys.exit(1)
+
+    try:
+        if date:
+            # Date-based fetching
+            click.echo(f"📰 Fetching hot news for date {date} from {source}...")
+            news_list = fetch_daily_news(date, max_news=max_news, source=source)
+            click.echo(f"✅ Fetched {len(news_list)} news items")
+
+            # Show stats
+            total = count_papers(week_id=date)
+            click.echo(f"   Total items in database for {date}: {total}")
+        else:
+            # Week-based fetching (default)
+            week_id = week or get_current_week_id()
+            click.echo(f"📰 Fetching hot news for week {week_id} from {source}...")
+            news_list = fetch_weekly_news(week_id, max_news=max_news, source=source)
+            click.echo(f"✅ Fetched {len(news_list)} news items")
+
+            # Show stats
+            total = count_papers(week_id=week_id)
+            click.echo(f"   Total items in database for {week_id}: {total}")
+
+    except Exception as e:
+        logger.exception("News fetch failed")
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# 新增命令：GitHub Trending 获取
+# =============================================================================
+
+@main.command("fetch-github")
+@click.option(
+    "--week", "-w",
+    default=None,
+    help="Week ID (e.g., 2026-01)."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (YYYY-MM-DD), e.g., 2026-01-20."
+)
+@click.option(
+    "--max", "-m",
+    "max_projects",
+    default=25,
+    type=int,
+    help="Maximum projects to fetch (default: 25)"
+)
+@click.option(
+    "--language", "-l",
+    default=None,
+    help="Filter by programming language (e.g., python, javascript)"
+)
+@click.option(
+    "--since",
+    default="daily",
+    type=click.Choice(["daily", "weekly", "monthly"]),
+    help="Time range (default: daily)"
+)
+def fetch_github(
+    week: Optional[str],
+    date: Optional[str],
+    max_projects: int,
+    language: Optional[str],
+    since: str
+) -> None:
+    """
+    Fetch GitHub Trending repositories.
+
+    Examples:
+        apd fetch-github --date 2026-01-20 --max 20
+        apd fetch-github --week 2026-03 --language python --since weekly
+    """
+    from .github_fetcher import fetch_daily_github_trending, fetch_weekly_github_trending
+
+    logger = get_logger()
+
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive.", err=True)
+        sys.exit(1)
+
+    try:
+        if date:
+            # Date-based fetching
+            click.echo(f"🔥 Fetching GitHub Trending for date {date}...")
+            if language:
+                click.echo(f"   Language filter: {language}")
+            projects = fetch_daily_github_trending(date, max_projects=max_projects, language=language, since=since)
+            click.echo(f"✅ Fetched {len(projects)} GitHub projects")
+
+            # Show stats
+            total = count_papers(week_id=date)
+            click.echo(f"   Total items in database for {date}: {total}")
+        else:
+            # Week-based fetching (default)
+            week_id = week or get_current_week_id()
+            click.echo(f"🔥 Fetching GitHub Trending for week {week_id}...")
+            if language:
+                click.echo(f"   Language filter: {language}")
+            projects = fetch_weekly_github_trending(week_id, max_projects=max_projects, language=language)
+            click.echo(f"✅ Fetched {len(projects)} GitHub projects")
+
+            # Show stats
+            total = count_papers(week_id=week_id)
+            click.echo(f"   Total items in database for {week_id}: {total}")
+
+    except Exception as e:
+        logger.exception("GitHub fetch failed")
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# 新增命令：B站登录
+# =============================================================================
+
+@main.command("bilibili-login")
+def bilibili_login() -> None:
+    """
+    Open browser for Bilibili Creator login.
+
+    This will open a headful browser for you to scan the QR code.
+    The session will be saved for future automated publishing.
+    """
+    from .bilibili_bot import BilibiliBot
+
+    click.echo("🔐 Opening browser for Bilibili login...")
+    click.echo("   Please scan the QR code to log in to Creator Studio.")
+    click.echo("   The session will be saved for future use.")
+    click.echo()
+
+    with BilibiliBot(headless=False) as bot:
+        if bot.login():
+            click.echo("✅ Bilibili login successful! Session saved.")
+        else:
+            click.echo("❌ Bilibili login failed or timed out.", err=True)
+            sys.exit(1)
+
+
+# =============================================================================
+# 新增命令：B站发布
+# =============================================================================
+
+@main.command("publish-bilibili")
+@click.option(
+    "--week", "-w",
+    default=None,
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-20). Publish videos for a specific date."
+)
+@click.option(
+    "--paper-id", "-p",
+    help="Content ID of a specific item to publish."
+)
+@click.option(
+    "--force", "-f",
+    is_flag=True,
+    help="Force re-publish even if already published."
+)
+@click.option(
+    "--headful",
+    is_flag=True,
+    help="Run in headful mode (visible browser, required for manual publish)."
+)
+@click.option(
+    "--auto-publish",
+    is_flag=True,
+    help="Automatically click publish button (default: manual publish)."
+)
+def publish_bilibili(
+    week: Optional[str],
+    date: Optional[str],
+    paper_id: Optional[str],
+    force: bool,
+    headful: bool,
+    auto_publish: bool
+) -> None:
+    """
+    Publish videos to Bilibili Creator Studio (semi-automatic mode by default).
+
+    By default, the script will upload the video and fill in all information,
+    then pause for you to manually click the publish button.
+
+    Use --auto-publish to automatically click publish (not recommended).
+
+    Examples:
+        apd publish-bilibili --date 2026-01-20 --headful
+        apd publish-bilibili --week 2026-03 --headful --auto-publish
+    """
+    from .bilibili_bot import BilibiliBot
+    from .db import get_paper, list_papers
+
+    logger = get_logger()
+
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive.", err=True)
+        sys.exit(1)
+
+    # Determine period_id (date or week)
+    if date:
+        period_id = date
+        period_type = "date"
+    else:
+        period_id = week or get_current_week_id()
+        period_type = "week"
+
+    # Identify items to publish
+    if paper_id:
+        papers = [get_paper(paper_id)]
+        if not papers[0]:
+            click.echo(f"❌ Item {paper_id} not found in database.", err=True)
+            sys.exit(1)
+    else:
+        # Publish all items for the period that have videos
+        papers = list_papers(week_id=period_id, status=Status.VIDEO_OK)
+
+    if not papers:
+        click.echo(f"⚠️  No items with videos found for {period_type} {period_id}.")
+        click.echo("   Run 'apd download-video' first.")
+        return
+
+    click.echo(f"🚀 Publishing {len(papers)} videos to Bilibili...")
+    if not auto_publish:
+        click.echo("📌 Semi-automatic mode: You will manually click publish button")
+
+    with BilibiliBot(headless=not headful) as bot:
+        # Check login first
+        if not bot.is_logged_in():
+            click.echo("❌ Not logged into Bilibili. Please run 'apd bilibili-login' first.", err=True)
+            sys.exit(1)
+
+        success_count = 0
+        total_papers = len(papers)
+
+        for idx, paper in enumerate(papers, 1):
+            click.echo(f"\n{'='*50}")
+            click.echo(f"📹 Processing video {idx}/{total_papers}")
+
+            if not paper.video_path:
+                click.echo(f"⏭️  Skipping {paper.paper_id}: No video path found.")
+                continue
+
+            video_path = Path(paper.video_path)
+            if not video_path.exists():
+                click.echo(f"❌ Skipping {paper.paper_id}: Video file not found at {video_path}")
+                continue
+
+            click.echo(f"📤 Uploading {paper.paper_id}: {paper.title}")
+
+            # Construct description
+            if paper.summary:
+                description = f"{paper.summary}\n\n"
+            else:
+                description = ""
+
+            # Add source info based on content type
+            if paper.content_type == "GITHUB":
+                description += f"GitHub: {paper.source_url}\n"
+                description += f"⭐ Stars: {paper.github_stars}\n"
+                if paper.github_language:
+                    description += f"Language: {paper.github_language}\n"
+            elif paper.content_type == "NEWS":
+                description += f"来源: {paper.news_source}\n"
+                description += f"原文: {paper.news_url}\n"
+            else:  # PAPER
+                description += f"arXiv: {paper.paper_id}\n"
+
+            description += "\nAutomated by Auto-Paper-Digest"
+
+            # Tags based on content type
+            if paper.content_type == "GITHUB":
+                tags = ["GitHub", "开源项目", "编程"]
+                if paper.github_language:
+                    tags.append(paper.github_language)
+            elif paper.content_type == "NEWS":
+                tags = ["热点", "新闻", paper.news_source or "资讯"]
+            else:  # PAPER
+                tags = ["AI", "论文", "Research", "MachineLearning"]
+
+            # Publish video
+            if bot.publish_video(
+                video_path=video_path,
+                title=paper.title[:80],  # B站标题限制80字符
+                description=description,
+                tags=tags,
+                skip_login_check=True,
+                auto_publish=auto_publish
+            ):
+                click.echo(f"✅ Successfully processed {paper.paper_id}!")
+                success_count += 1
+            else:
+                click.echo(f"❌ Failed to process {paper.paper_id}.")
+
+        click.echo()
+        click.echo(f"🎉 Bilibili publish complete: {success_count}/{total_papers} successful.")
+
+
 if __name__ == "__main__":
     main()
+
 
