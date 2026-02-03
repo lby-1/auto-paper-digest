@@ -747,42 +747,74 @@ def run(
     type=int,
     help="Maximum papers to show (default: 20)"
 )
+@click.option(
+    "--min-quality",
+    type=float,
+    default=0.0,
+    help="Minimum quality score filter (0-100)"
+)
+@click.option(
+    "--show-scores/--no-show-scores",
+    default=False,
+    help="Show quality scores in output"
+)
 def status(
     week: Optional[str],
     filter_status: Optional[str],
-    limit: int
+    limit: int,
+    min_quality: float,
+    show_scores: bool
 ) -> None:
     """
     Show status of papers in the database.
-    
+
     Lists papers with their current processing status.
     """
     from .digest import print_digest_summary
-    
+    from .db import list_papers_by_quality
+
     week_id = week or get_current_week_id()
-    
-    # Get papers
-    papers = list_papers(week_id=week_id, status=filter_status, limit=limit)
-    
+
+    # Get papers with quality filtering
+    if min_quality > 0 or show_scores:
+        papers = list_papers_by_quality(
+            week_id=week_id,
+            min_quality_score=min_quality,
+            limit=limit
+        )
+        # Apply status filter if needed
+        if filter_status:
+            papers = [p for p in papers if p.status == filter_status]
+    else:
+        papers = list_papers(week_id=week_id, status=filter_status, limit=limit)
+
     if not papers:
         click.echo(f"No papers found for week {week_id}")
         if filter_status:
             click.echo(f"   (filtered by status: {filter_status})")
+        if min_quality > 0:
+            click.echo(f"   (filtered by quality >= {min_quality})")
         return
-    
+
     # Print header
     click.echo(f"\n📋 Papers for week {week_id}")
     if filter_status:
         click.echo(f"   (filtered by status: {filter_status})")
+    if min_quality > 0:
+        click.echo(f"   (filtered by quality >= {min_quality})")
     click.echo()
-    
+
     # Print table
-    click.echo(f"{'Paper ID':<15} {'Status':<10} {'Title':<50}")
-    click.echo("-" * 75)
-    
+    if show_scores:
+        click.echo(f"{'Paper ID':<15} {'Score':<6} {'Status':<10} {'Title':<45}")
+        click.echo("-" * 80)
+    else:
+        click.echo(f"{'Paper ID':<15} {'Status':<10} {'Title':<50}")
+        click.echo("-" * 75)
+
     for paper in papers:
-        title = (paper.title or "Untitled")[:47]
-        if len(paper.title or "") > 47:
+        title = (paper.title or "Untitled")[:42 if show_scores else 47]
+        if len(paper.title or "") > (42 if show_scores else 47):
             title += "..."
         status_icon = {
             Status.NEW: "🆕",
@@ -791,8 +823,14 @@ def status(
             Status.VIDEO_OK: "✅",
             Status.ERROR: "❌",
         }.get(paper.status, "❓")
-        click.echo(f"{paper.paper_id:<15} {status_icon} {paper.status:<8} {title}")
-    
+
+        if show_scores:
+            score_str = f"{paper.quality_score:.1f}" if paper.quality_score else "N/A"
+            filtered_mark = "🚫" if paper.filtered_out else ""
+            click.echo(f"{paper.paper_id:<15} {score_str:<6} {status_icon} {paper.status:<8} {title} {filtered_mark}")
+        else:
+            click.echo(f"{paper.paper_id:<15} {status_icon} {paper.status:<8} {title}")
+
     # Print summary
     print_digest_summary(week_id)
 

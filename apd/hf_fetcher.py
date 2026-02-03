@@ -323,20 +323,27 @@ def fetch_daily_papers(
         ValueError: If the date has no papers (redirected to different date)
     """
     logger.info(f"Fetching papers for date {date_id}")
-    
+
+    # 导入质量过滤器
+    from .quality_filter import QualityFilter
+    from .utils import now_iso
+    import json
+
+    quality_filter = QualityFilter()
+
     # Fetch papers from date page (this will raise ValueError if redirected)
     papers_from_date, actual_date = fetch_papers_for_date_page(date_id, max_papers=max_papers)
-    
+
     all_papers = []
     seen_ids = set()
-    
+
     for paper in papers_from_date:
         paper_id = paper["paper_id"]
-        
+
         if paper_id in seen_ids:
             continue
         seen_ids.add(paper_id)
-        
+
         # Check if paper already exists in DB
         existing = get_paper(paper_id)
         if existing:
@@ -352,7 +359,14 @@ def fetch_daily_papers(
                 logger.debug(f"Paper {paper_id} already in database for this date")
             all_papers.append(paper)
             continue
-        
+
+        # 评估质量
+        score = quality_filter.evaluate_paper(
+            title=paper.get("title", ""),
+            pdf_url=paper.get("pdf_url"),
+            hf_url=paper.get("hf_url")
+        )
+
         # Insert new paper with date_id as the week_id
         upsert_paper(
             paper_id=paper_id,
@@ -360,6 +374,15 @@ def fetch_daily_papers(
             title=paper["title"],
             hf_url=paper["hf_url"],
             pdf_url=paper["pdf_url"],
+            # 质量评分字段
+            quality_score=score.total_score,
+            citation_score=score.citation_score,
+            venue_score=score.venue_score,
+            recency_score=score.recency_score,
+            quality_reasons=json.dumps(score.reasons, ensure_ascii=False),
+            filtered_out=0 if score.passed else 1,
+            filter_reason=None if score.passed else "质量评分低于阈值",
+            evaluated_at=now_iso()
         )
         logger.info(f"Added paper: {paper_id} - {paper['title'][:50]}...")
         all_papers.append(paper)
@@ -377,22 +400,29 @@ def fetch_weekly_papers(
 ) -> list[dict]:
     """
     Fetch all papers for a given week and store in database.
-    
+
     First tries the week URL format (https://huggingface.co/papers/week/YYYY-WXX),
     then falls back to date-by-date fetching if that returns empty.
-    
+
     Args:
         week_id: Week identifier (e.g., "2026-01")
         max_papers: Maximum total papers to fetch
-        
+
     Returns:
         List of paper dicts that were fetched
     """
     logger.info(f"Fetching papers for week {week_id}")
-    
+
+    # 导入质量过滤器
+    from .quality_filter import QualityFilter
+    from .utils import now_iso
+    import json
+
+    quality_filter = QualityFilter()
+
     all_papers = []
     seen_ids = set()
-    
+
     # First, try the week URL format (more efficient)
     papers_from_week = fetch_papers_for_week_url(week_id, max_papers=max_papers)
     
@@ -419,14 +449,30 @@ def fetch_weekly_papers(
                     logger.debug(f"Paper {paper_id} already in database for this week")
                 all_papers.append(paper)
                 continue
-            
-            # Insert new paper
+
+            # 评估质量
+            score = quality_filter.evaluate_paper(
+                title=paper.get("title", ""),
+                pdf_url=paper.get("pdf_url"),
+                hf_url=paper.get("hf_url")
+            )
+
+            # Insert new paper with quality scores
             upsert_paper(
                 paper_id=paper_id,
                 week_id=week_id,
                 title=paper["title"],
                 hf_url=paper["hf_url"],
                 pdf_url=paper["pdf_url"],
+                # 质量评分字段
+                quality_score=score.total_score,
+                citation_score=score.citation_score,
+                venue_score=score.venue_score,
+                recency_score=score.recency_score,
+                quality_reasons=json.dumps(score.reasons, ensure_ascii=False),
+                filtered_out=0 if score.passed else 1,
+                filter_reason=None if score.passed else "质量评分低于阈值",
+                evaluated_at=now_iso()
             )
             logger.info(f"Added paper: {paper_id} - {paper['title'][:50]}...")
             all_papers.append(paper)
@@ -470,14 +516,30 @@ def fetch_weekly_papers(
                         logger.debug(f"Paper {paper_id} already in database for this week")
                     all_papers.append(paper)
                     continue
-                
-                # Insert new paper
+
+                # 评估质量
+                score = quality_filter.evaluate_paper(
+                    title=paper.get("title", ""),
+                    pdf_url=paper.get("pdf_url"),
+                    hf_url=paper.get("hf_url")
+                )
+
+                # Insert new paper with quality scores
                 upsert_paper(
                     paper_id=paper_id,
                     week_id=week_id,
                     title=paper["title"],
                     hf_url=paper["hf_url"],
                     pdf_url=paper["pdf_url"],
+                    # 质量评分字段
+                    quality_score=score.total_score,
+                    citation_score=score.citation_score,
+                    venue_score=score.venue_score,
+                    recency_score=score.recency_score,
+                    quality_reasons=json.dumps(score.reasons, ensure_ascii=False),
+                    filtered_out=0 if score.passed else 1,
+                    filter_reason=None if score.passed else "质量评分低于阈值",
+                    evaluated_at=now_iso()
                 )
                 logger.info(f"Added paper: {paper_id} - {paper['title'][:50]}...")
                 all_papers.append(paper)

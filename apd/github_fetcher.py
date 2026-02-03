@@ -48,6 +48,13 @@ def fetch_daily_github_trending(
     """
     logger.info(f"Fetching GitHub Trending (language={language}, since={since}) for date {date}")
 
+    # 导入质量过滤器
+    from .quality_filter import QualityFilter
+    from .utils import now_iso
+    import json
+
+    quality_filter = QualityFilter()
+
     # 获取项目列表
     projects = _fetch_github_trending(max_projects, language, since)
 
@@ -55,6 +62,14 @@ def fetch_daily_github_trending(
     saved_count = 0
     for project in projects:
         try:
+            # 评估质量
+            score = quality_filter.evaluate_github_project(
+                name=project.get('name', ''),
+                stars=project.get('stars', 0),
+                language=project.get('language'),
+                description=project.get('description')
+            )
+
             upsert_paper(
                 paper_id=project['id'],
                 week_id=date,  # 使用日期作为 week_id
@@ -64,7 +79,16 @@ def fetch_daily_github_trending(
                 summary=project['description'],
                 github_stars=project['stars'],
                 github_language=project['language'],
-                github_description=project['description']
+                github_description=project['description'],
+                # 质量评分字段
+                quality_score=score.total_score,
+                citation_score=score.citation_score,
+                venue_score=score.venue_score,
+                recency_score=score.recency_score,
+                quality_reasons=json.dumps(score.reasons, ensure_ascii=False),
+                filtered_out=0 if score.passed else 1,
+                filter_reason=None if score.passed else "质量评分低于阈值",
+                evaluated_at=now_iso()
             )
             saved_count += 1
         except Exception as e:

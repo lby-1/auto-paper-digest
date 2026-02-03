@@ -4,6 +4,7 @@ Configuration module for Auto Paper Digest.
 Centralizes all paths, URLs, and default settings.
 """
 
+import os
 from pathlib import Path
 
 # =============================================================================
@@ -115,3 +116,47 @@ def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
     for directory in [PDF_DIR, VIDEO_DIR, SLIDES_DIR, DIGEST_DIR, PROFILE_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
+
+
+# =============================================================================
+# Quality Control Configuration
+# =============================================================================
+
+class QualityConfig:
+    """质量控制配置"""
+
+    # 评分权重(总和为1.0)
+    CITATION_WEIGHT = 0.35
+    AUTHOR_WEIGHT = 0.25
+    VENUE_WEIGHT = 0.30
+    RECENCY_WEIGHT = 0.10
+
+    # 质量阈值
+    MIN_QUALITY_SCORE = float(os.getenv("MIN_QUALITY_SCORE", "60.0"))
+
+    # 论文特定配置
+    MIN_CITATIONS = int(os.getenv("MIN_CITATIONS", "0"))  # 新论文可为0
+    ACCEPTED_VENUE_RANKS = ["A", "B", "C"]  # CCF等级
+
+    # GitHub项目配置
+    MIN_GITHUB_STARS = int(os.getenv("MIN_GITHUB_STARS", "100"))
+    GITHUB_STARS_WEIGHT = 0.40
+    GITHUB_LANGUAGE_WEIGHT = 0.20
+    GITHUB_ACTIVITY_WEIGHT = 0.40
+
+    # 新闻配置
+    NEWS_RANK_WEIGHT = 0.60
+    NEWS_SOURCE_WEIGHT = 0.40
+
+    # 源权重(不同来源的基础分)
+    SOURCE_WEIGHTS = {
+        "arxiv": 1.0,
+        "huggingface": 1.0,
+        "weibo": 0.8,
+        "zhihu": 0.9,
+        "baidu": 0.7,
+    }
+
+    # API配置(可选)
+    SEMANTIC_SCHOLAR_API_KEY = os.getenv("S2_API_KEY")
+    ENABLE_SEMANTIC_SCHOLAR = os.getenv("ENABLE_S2", "false").lower() == "true"

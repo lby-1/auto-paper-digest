@@ -117,6 +117,16 @@ class Paper:
     bilibili_published: int = 0  # 0=未发布, 1=已发布
     douyin_published: int = 0    # 0=未发布, 1=已发布
 
+    # 质量控制字段（新增）
+    quality_score: Optional[float] = None        # 综合质量评分 0-100
+    citation_score: Optional[float] = None       # 引用数评分
+    venue_score: Optional[float] = None          # 会议/期刊评分
+    recency_score: Optional[float] = None        # 时效性评分
+    quality_reasons: Optional[str] = None        # JSON字符串：评分详情
+    filtered_out: int = 0                        # 是否被过滤 0/1
+    filter_reason: Optional[str] = None          # 过滤原因
+    evaluated_at: Optional[str] = None           # 评估时间戳
+
     # 状态字段
     status: str = Status.NEW
     retry_count: int = 0
@@ -238,6 +248,24 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass
 
+        # 质量控制字段迁移
+        quality_fields = [
+            ("quality_score", "REAL DEFAULT 0.0"),
+            ("citation_score", "REAL DEFAULT 0.0"),
+            ("venue_score", "REAL DEFAULT 0.0"),
+            ("recency_score", "REAL DEFAULT 0.0"),
+            ("quality_reasons", "TEXT"),
+            ("filtered_out", "INTEGER DEFAULT 0"),
+            ("filter_reason", "TEXT"),
+            ("evaluated_at", "TEXT"),
+        ]
+
+        for field_name, field_type in quality_fields:
+            try:
+                cursor.execute(f"ALTER TABLE papers ADD COLUMN {field_name} {field_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
         # Create indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_papers_week 
@@ -303,6 +331,15 @@ def upsert_paper(
     news_url: Optional[str] = None,
     bilibili_published: Optional[int] = None,
     douyin_published: Optional[int] = None,
+    # 质量控制参数
+    quality_score: Optional[float] = None,
+    citation_score: Optional[float] = None,
+    venue_score: Optional[float] = None,
+    recency_score: Optional[float] = None,
+    quality_reasons: Optional[str] = None,
+    filtered_out: Optional[int] = None,
+    filter_reason: Optional[str] = None,
+    evaluated_at: Optional[str] = None,
 ) -> Paper:
     """
     Insert or update a paper/content record.
@@ -392,6 +429,32 @@ def upsert_paper(
                 updates.append("douyin_published = ?")
                 values.append(douyin_published)
 
+            # 质量控制字段更新
+            if quality_score is not None:
+                updates.append("quality_score = ?")
+                values.append(quality_score)
+            if citation_score is not None:
+                updates.append("citation_score = ?")
+                values.append(citation_score)
+            if venue_score is not None:
+                updates.append("venue_score = ?")
+                values.append(venue_score)
+            if recency_score is not None:
+                updates.append("recency_score = ?")
+                values.append(recency_score)
+            if quality_reasons is not None:
+                updates.append("quality_reasons = ?")
+                values.append(quality_reasons)
+            if filtered_out is not None:
+                updates.append("filtered_out = ?")
+                values.append(filtered_out)
+            if filter_reason is not None:
+                updates.append("filter_reason = ?")
+                values.append(filter_reason)
+            if evaluated_at is not None:
+                updates.append("evaluated_at = ?")
+                values.append(evaluated_at)
+
             updates.append("updated_at = ?")
             values.append(now)
             values.append(paper_id)
@@ -409,14 +472,18 @@ def upsert_paper(
                     pdf_sha256, notebooklm_note_name, video_path, slides_path, summary, status,
                     retry_count, last_error, updated_at,
                     content_type, source_url, github_stars, github_language, github_description,
-                    news_source, news_url, bilibili_published, douyin_published
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    news_source, news_url, bilibili_published, douyin_published,
+                    quality_score, citation_score, venue_score, recency_score, quality_reasons,
+                    filtered_out, filter_reason, evaluated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 paper_id, week_id, title, hf_url, pdf_url, pdf_path,
                 pdf_sha256, notebooklm_note_name, video_path, slides_path, summary,
                 status or Status.NEW, 0, last_error, now,
                 content_type or "PAPER", source_url, github_stars, github_language, github_description,
-                news_source, news_url, bilibili_published or 0, douyin_published or 0
+                news_source, news_url, bilibili_published or 0, douyin_published or 0,
+                quality_score, citation_score, venue_score, recency_score, quality_reasons,
+                filtered_out or 0, filter_reason, evaluated_at
             ))
             logger.debug(f"Inserted paper: {paper_id}")
 
@@ -513,20 +580,20 @@ def list_papers(
 def count_papers(week_id: Optional[str] = None, status: Optional[str] = None) -> int:
     """
     Count papers with optional filtering.
-    
+
     Args:
         week_id: Filter by week
         status: Filter by status
-        
+
     Returns:
         Count of matching papers
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        
+
         query = "SELECT COUNT(*) FROM papers WHERE 1=1"
         params: list = []
-        
+
         if week_id:
             clause, clause_params = _build_week_id_clause(week_id)
             query += f" AND {clause}"
@@ -534,9 +601,46 @@ def count_papers(week_id: Optional[str] = None, status: Optional[str] = None) ->
         if status:
             query += " AND status = ?"
             params.append(status)
-        
+
         cursor.execute(query, params)
         return cursor.fetchone()[0]
+
+
+def list_papers_by_quality(
+    week_id: Optional[str] = None,
+    min_quality_score: float = 0.0,
+    include_filtered: bool = True,
+    limit: Optional[int] = None
+) -> list[Paper]:
+    """列出符合质量要求的内容"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM papers WHERE 1=1"
+        params: list = []
+
+        if min_quality_score > 0:
+            query += " AND (quality_score >= ? OR quality_score IS NULL)"
+            params.append(min_quality_score)
+
+        if not include_filtered:
+            query += " AND filtered_out = 0"
+
+        if week_id:
+            clause, clause_params = _build_week_id_clause(week_id)
+            query += f" AND {clause}"
+            params.extend(clause_params)
+
+        query += " ORDER BY quality_score DESC, updated_at DESC"
+
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        return [Paper(**dict(row)) for row in rows]
 
 
 def get_papers_for_processing(

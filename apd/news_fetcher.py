@@ -46,6 +46,13 @@ def fetch_daily_news(
 
     logger.info(f"Fetching news from {source} for date {date}")
 
+    # 导入质量过滤器
+    from .quality_filter import QualityFilter
+    from .utils import now_iso
+    import json
+
+    quality_filter = QualityFilter()
+
     # 根据源选择不同的爬取函数
     if source == "weibo":
         news_list = _fetch_weibo_hot(max_news)
@@ -61,6 +68,14 @@ def fetch_daily_news(
     saved_count = 0
     for news in news_list:
         try:
+            # 评估质量
+            score = quality_filter.evaluate_news(
+                title=news.get('title', ''),
+                rank=news.get('rank', 999),
+                source=source,
+                hot_value=news.get('hot_value')
+            )
+
             upsert_paper(
                 paper_id=news['id'],
                 week_id=date,  # 使用日期作为 week_id
@@ -69,7 +84,16 @@ def fetch_daily_news(
                 source_url=news['url'],
                 summary=news.get('description', ''),
                 news_source=source,
-                news_url=news['url']
+                news_url=news['url'],
+                # 质量评分字段
+                quality_score=score.total_score,
+                citation_score=score.citation_score,
+                venue_score=score.venue_score,
+                recency_score=score.recency_score,
+                quality_reasons=json.dumps(score.reasons, ensure_ascii=False),
+                filtered_out=0 if score.passed else 1,
+                filter_reason=None if score.passed else "质量评分低于阈值",
+                evaluated_at=now_iso()
             )
             saved_count += 1
         except Exception as e:
