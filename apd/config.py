@@ -186,3 +186,40 @@ class DeduplicationConfig:
     # 性能配置
     ENABLE_SEMANTIC_DEDUP = os.getenv("ENABLE_SEMANTIC_DEDUP", "true").lower() == "true"
     BATCH_SIZE = int(os.getenv("DEDUP_BATCH_SIZE", "100"))  # 批处理大小
+
+
+# =============================================================================
+# Recommendation Configuration
+# =============================================================================
+
+class RecommendationConfig:
+    """推荐系统配置"""
+
+    # 默认用户ID
+    DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "default")
+
+    # Embedding模型（复用去重系统的模型）
+    EMBEDDING_MODEL = os.getenv("REC_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
+    # 热门推荐权重
+    POPULAR_QUALITY_WEIGHT = 0.6
+    POPULAR_RECENCY_WEIGHT = 0.3
+    POPULAR_CITATION_WEIGHT = 0.1
+
+    # 相似度阈值
+    CONTENT_SIMILARITY_THRESHOLD = float(os.getenv("CONTENT_SIMILARITY_THRESHOLD", "0.5"))
+
+    # 推荐数量
+    DEFAULT_RECOMMENDATION_COUNT = int(os.getenv("REC_COUNT", "10"))
+
+    # 用户行为权重
+    INTERACTION_WEIGHTS = {
+        "view": 1.0,
+        "favorite": 3.0,
+        "share": 5.0,
+        "download": 2.0,
+    }
+
+    # 用户分类阈值（交互次数）
+    NEW_USER_THRESHOLD = 5       # 新用户：< 5次交互
+    ACTIVE_USER_THRESHOLD = 20   # 活跃用户：>= 20次交互

@@ -132,6 +132,14 @@ class Paper:
     arxiv_id_normalized: Optional[str] = None    # 标准化的arXiv ID
     duplicate_of: Optional[str] = None           # 如果是重复项，指向主论文ID
 
+    # 推荐系统字段（新增）
+    embedding: Optional[str] = None              # JSON: 向量embedding
+    keywords: Optional[str] = None               # JSON: 提取的关键词
+    view_count: int = 0                          # 查看次数
+    favorite_count: int = 0                      # 收藏次数
+    share_count: int = 0                         # 分享次数
+    recommendation_score: Optional[float] = None # 推荐分数
+
     # 状态字段
     status: str = Status.NEW
     retry_count: int = 0
@@ -298,20 +306,100 @@ def init_db() -> None:
             )
         """)
 
+        # 推荐系统字段迁移
+        recommendation_fields = [
+            ("embedding", "TEXT"),
+            ("keywords", "TEXT"),
+            ("view_count", "INTEGER DEFAULT 0"),
+            ("favorite_count", "INTEGER DEFAULT 0"),
+            ("share_count", "INTEGER DEFAULT 0"),
+            ("recommendation_score", "REAL"),
+        ]
+
+        for field_name, field_type in recommendation_fields:
+            try:
+                cursor.execute(f"ALTER TABLE papers ADD COLUMN {field_name} {field_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        # 创建用户交互表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_interactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                paper_id TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                interaction_score REAL DEFAULT 1.0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
+            )
+        """)
+
+        # 创建推荐记录表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                paper_id TEXT NOT NULL,
+                strategy TEXT NOT NULL,
+                score REAL NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                clicked INTEGER DEFAULT 0,
+                FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
+            )
+        """)
+
+        # 创建用户偏好表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id TEXT PRIMARY KEY,
+                preferred_topics TEXT,
+                preferred_authors TEXT,
+                min_quality_score REAL DEFAULT 60.0,
+                min_citations INTEGER DEFAULT 0,
+                exclude_keywords TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         # Create indexes for common queries
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_papers_week 
+            CREATE INDEX IF NOT EXISTS idx_papers_week
             ON papers(week_id)
         """)
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_papers_status 
+            CREATE INDEX IF NOT EXISTS idx_papers_status
             ON papers(status)
         """)
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_papers_week_status 
+            CREATE INDEX IF NOT EXISTS idx_papers_week_status
             ON papers(week_id, status)
         """)
-        
+
+        # 创建推荐系统索引
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_interactions_user
+            ON user_interactions(user_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_interactions_paper
+            ON user_interactions(paper_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_interactions_time
+            ON user_interactions(created_at)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recommendations_user
+            ON recommendations(user_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recommendations_paper
+            ON recommendations(paper_id)
+        """)
+
         logger.debug("Database initialized")
 
 

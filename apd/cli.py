@@ -1672,6 +1672,100 @@ def dedup_groups(status: Optional[str], limit: int) -> None:
         click.echo(f"   (filtered by status: {status})")
 
 
+# =============================================================================
+# Recommendation Commands
+# =============================================================================
+
+@main.command()
+@click.option("--week", "-w", default=None, help="Week ID (YYYY-WNN or YYYY-MM-DD)")
+@click.option("--strategy", "-s",
+              type=click.Choice(["popular", "similar", "collaborative", "hybrid"]),
+              default="hybrid",
+              help="Recommendation strategy")
+@click.option("--limit", "-n", default=10, help="Number of recommendations")
+@click.option("--user", "-u", default="default", help="User ID")
+@click.option("--based-on", help="Paper ID for similar recommendations")
+def recommend(
+    week: Optional[str],
+    strategy: str,
+    limit: int,
+    user: str,
+    based_on: Optional[str]
+) -> None:
+    """Get personalized paper recommendations."""
+
+    from .recommender import Recommender
+
+    click.echo(f"🎯 Getting recommendations using {strategy} strategy...")
+
+    recommender = Recommender(user_id=user)
+
+    try:
+        if strategy == "popular":
+            results = recommender.recommend_popular(week_id=week, limit=limit)
+        elif strategy == "similar":
+            if not based_on:
+                click.echo("❌ Error: --based-on required for similar strategy")
+                return
+            results = recommender.recommend_similar(paper_id=based_on, limit=limit)
+        elif strategy == "collaborative":
+            results = recommender.recommend_collaborative(limit=limit)
+        elif strategy == "hybrid":
+            results = recommender.recommend_hybrid(week_id=week, limit=limit)
+        else:
+            click.echo(f"❌ Unknown strategy: {strategy}")
+            return
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+        logger.error(f"Recommendation failed: {e}", exc_info=True)
+        return
+
+    if not results:
+        click.echo("📭 No recommendations found")
+        return
+
+    click.echo(f"\n✨ Found {len(results)} recommendations:\n")
+    click.echo(f"{'#':<3} {'Score':<6} {'Strategy':<15} {'Title':<50}")
+    click.echo("-" * 80)
+
+    for i, result in enumerate(results, 1):
+        score_str = f"{result.score:.2f}"
+        title = result.title[:47] + "..." if len(result.title) > 50 else result.title
+        click.echo(f"{i:<3} {score_str:<6} {result.strategy:<15} {title}")
+
+        if result.reasons:
+            reasons_str = " | ".join(result.reasons)
+            click.echo(f"    💡 {reasons_str}")
+
+        # 保存推荐记录
+        try:
+            recommender.save_recommendation(result)
+        except Exception as e:
+            logger.warning(f"Failed to save recommendation: {e}")
+
+
+@main.command()
+@click.argument("paper_id")
+@click.option("--action", "-a",
+              type=click.Choice(["view", "favorite", "share"]),
+              required=True,
+              help="Interaction type")
+@click.option("--user", "-u", default="default", help="User ID")
+def interact(paper_id: str, action: str, user: str) -> None:
+    """Record user interaction with a paper."""
+
+    from .recommender import Recommender
+
+    recommender = Recommender(user_id=user)
+
+    try:
+        recommender.track_interaction(paper_id, action)
+        click.echo(f"✅ Recorded {action} for paper {paper_id}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+        logger.error(f"Failed to track interaction: {e}", exc_info=True)
+
+
 if __name__ == "__main__":
     main()
 
