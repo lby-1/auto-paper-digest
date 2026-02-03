@@ -6,6 +6,13 @@ running NotebookLM automation, and generating digests.
 """
 
 import sys
+import io
+
+# Fix encoding for Windows
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from pathlib import Path
 from typing import Optional
 
