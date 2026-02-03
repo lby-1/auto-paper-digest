@@ -1472,6 +1472,199 @@ def publish_bilibili(
         click.echo(f"🎉 Bilibili publish complete: {success_count}/{total_papers} successful.")
 
 
+# =============================================================================
+# Deduplication Commands
+# =============================================================================
+
+@main.command()
+@click.option(
+    "--week", "-w",
+    default=None,
+    help="Week ID (e.g., 2026-05). Defaults to current week."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-02-03). Check papers for a specific date."
+)
+@click.option(
+    "--show-details",
+    is_flag=True,
+    help="Show detailed similarity scores"
+)
+@click.option(
+    "--auto-merge",
+    is_flag=True,
+    help="Automatically merge duplicates (use with caution)"
+)
+@click.option(
+    "--use-semantic/--no-semantic",
+    default=True,
+    help="Use semantic similarity (slower but more accurate)"
+)
+def dedup(
+    week: Optional[str],
+    date: Optional[str],
+    show_details: bool,
+    auto_merge: bool,
+    use_semantic: bool
+) -> None:
+    """
+    Detect and handle duplicate content.
+
+    Checks for duplicate papers using multiple similarity methods:
+    - URL matching (arXiv IDs)
+    - Title similarity
+    - Semantic similarity (optional)
+    """
+    from .deduplicator import Deduplicator
+    from .db import save_duplicate_group, mark_as_duplicate
+
+    logger = get_logger()
+
+    # Determine week_id
+    if date and week:
+        click.echo("❌ Error: --week and --date are mutually exclusive.", err=True)
+        sys.exit(1)
+
+    week_id = date or week or get_current_week_id()
+
+    click.echo(f"🔍 Checking for duplicates in {week_id}...")
+    if not use_semantic:
+        click.echo("   (Semantic similarity disabled for faster processing)")
+
+    # Get papers
+    papers = list_papers(week_id=week_id)
+
+    if not papers:
+        click.echo(f"No papers found for {week_id}")
+        return
+
+    click.echo(f"   Found {len(papers)} papers to check")
+
+    # Convert to dict format
+    papers_data = []
+    for paper in papers:
+        papers_data.append({
+            'paper_id': paper.paper_id,
+            'title': paper.title or '',
+            'pdf_url': paper.pdf_url or '',
+            'hf_url': paper.hf_url or '',
+            'abstract': paper.summary or '',  # Use summary as abstract
+        })
+
+    # Run deduplication
+    deduplicator = Deduplicator()
+    result = deduplicator.find_duplicates(papers_data, use_semantic=use_semantic)
+
+    # Display results
+    if not result.duplicate_groups:
+        click.echo("\n✅ No duplicates found!")
+        return
+
+    click.echo(f"\n📊 Deduplication Results:")
+    click.echo(f"   Total papers: {result.total_papers}")
+    click.echo(f"   Unique papers: {result.unique_papers}")
+    click.echo(f"   Duplicate groups: {len(result.duplicate_groups)}")
+    click.echo(f"   Duplicates removed: {result.duplicates_removed}")
+    click.echo(f"   Deduplication rate: {result.duplicates_removed/result.total_papers*100:.1f}%")
+
+    stats = deduplicator.get_deduplication_stats(result)
+    click.echo(f"\n📈 Detection Methods:")
+    click.echo(f"   Exact URL: {stats['detection_methods']['exact_url']}")
+    click.echo(f"   Title similarity: {stats['detection_methods']['title_similarity']}")
+    click.echo(f"   Semantic similarity: {stats['detection_methods']['semantic_similarity']}")
+
+    # Show details
+    if show_details:
+        click.echo(f"\n📋 Duplicate Groups:\n")
+        for i, group in enumerate(result.duplicate_groups, 1):
+            click.echo(f"Group {i}: {group.detection_method}")
+            click.echo(f"  Primary: {group.canonical_paper_id}")
+            click.echo(f"  Duplicates:")
+            for dup_id in group.duplicate_paper_ids:
+                score = group.similarity_scores.get(dup_id, 0.0)
+                click.echo(f"    - {dup_id} (similarity: {score:.2f})")
+            click.echo()
+
+    # Save to database
+    click.echo("💾 Saving duplicate groups to database...")
+    for group in result.duplicate_groups:
+        save_duplicate_group(
+            group_id=group.group_id,
+            canonical_paper_id=group.canonical_paper_id,
+            duplicate_paper_ids=group.duplicate_paper_ids,
+            similarity_scores=group.similarity_scores,
+            detection_method=group.detection_method,
+            created_at=group.created_at
+        )
+
+    # Auto-merge if requested
+    if auto_merge:
+        click.echo("\n⚠️  Auto-merging duplicates...")
+        if not click.confirm("This will mark duplicates in the database. Continue?"):
+            click.echo("Cancelled.")
+            return
+
+        merged_count = 0
+        for group in result.duplicate_groups:
+            for dup_id in group.duplicate_paper_ids:
+                mark_as_duplicate(dup_id, group.canonical_paper_id)
+                merged_count += 1
+
+        click.echo(f"✅ Marked {merged_count} papers as duplicates")
+    else:
+        click.echo("\n💡 Tip: Use --auto-merge to automatically mark duplicates")
+
+
+@main.command()
+@click.option(
+    "--status",
+    type=click.Choice(["pending", "merged", "ignored"]),
+    default=None,
+    help="Filter by merge status"
+)
+@click.option(
+    "--limit", "-l",
+    default=20,
+    type=int,
+    help="Maximum groups to show"
+)
+def dedup_groups(status: Optional[str], limit: int) -> None:
+    """
+    Show duplicate groups.
+
+    Lists all detected duplicate groups with their status.
+    """
+    from .db import get_duplicate_groups
+
+    click.echo(f"📋 Duplicate Groups\n")
+
+    groups = get_duplicate_groups(status=status, limit=limit)
+
+    if not groups:
+        click.echo("No duplicate groups found.")
+        if status:
+            click.echo(f"   (filtered by status: {status})")
+        return
+
+    for i, group in enumerate(groups, 1):
+        click.echo(f"Group {i}: {group['group_id']}")
+        click.echo(f"  Detection: {group['detection_method']}")
+        click.echo(f"  Status: {group.get('merge_status', 'pending')}")
+        click.echo(f"  Primary: {group['canonical_paper_id']}")
+        click.echo(f"  Duplicates ({len(group['duplicate_paper_ids'])}):")
+        for dup_id in group['duplicate_paper_ids'][:3]:  # Show first 3
+            click.echo(f"    - {dup_id}")
+        if len(group['duplicate_paper_ids']) > 3:
+            click.echo(f"    ... and {len(group['duplicate_paper_ids']) - 3} more")
+        click.echo()
+
+    click.echo(f"Showing {len(groups)} groups")
+    if status:
+        click.echo(f"   (filtered by status: {status})")
+
+
 if __name__ == "__main__":
     main()
 

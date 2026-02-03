@@ -160,3 +160,29 @@ class QualityConfig:
     # API配置(可选)
     SEMANTIC_SCHOLAR_API_KEY = os.getenv("S2_API_KEY")
     ENABLE_SEMANTIC_SCHOLAR = os.getenv("ENABLE_S2", "false").lower() == "true"
+
+
+# =============================================================================
+# Deduplication Configuration
+# =============================================================================
+
+class DeduplicationConfig:
+    """去重配置"""
+
+    # 相似度阈值
+    EXACT_MATCH_THRESHOLD = 1.0  # URL完全匹配
+    TITLE_SIMILARITY_THRESHOLD = float(os.getenv("TITLE_SIMILARITY_THRESHOLD", "0.85"))
+    ABSTRACT_SIMILARITY_THRESHOLD = float(os.getenv("ABSTRACT_SIMILARITY_THRESHOLD", "0.90"))
+
+    # 合并策略
+    MERGE_STRATEGY = os.getenv("DEDUP_MERGE_STRATEGY", "keep_first")
+    # 可选值: keep_first | keep_highest_quality | manual
+
+    # 嵌入模型
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    # 轻量级模型 (~90MB)
+    # 可选: "all-mpnet-base-v2" (更高精度, ~420MB)
+
+    # 性能配置
+    ENABLE_SEMANTIC_DEDUP = os.getenv("ENABLE_SEMANTIC_DEDUP", "true").lower() == "true"
+    BATCH_SIZE = int(os.getenv("DEDUP_BATCH_SIZE", "100"))  # 批处理大小

@@ -127,6 +127,11 @@ class Paper:
     filter_reason: Optional[str] = None          # 过滤原因
     evaluated_at: Optional[str] = None           # 评估时间戳
 
+    # 去重字段（新增）
+    title_hash: Optional[str] = None             # 标题哈希值（快速查找）
+    arxiv_id_normalized: Optional[str] = None    # 标准化的arXiv ID
+    duplicate_of: Optional[str] = None           # 如果是重复项，指向主论文ID
+
     # 状态字段
     status: str = Status.NEW
     retry_count: int = 0
@@ -266,6 +271,33 @@ def init_db() -> None:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+        # 去重字段迁移
+        dedup_fields = [
+            ("title_hash", "TEXT"),
+            ("arxiv_id_normalized", "TEXT"),
+            ("duplicate_of", "TEXT"),
+        ]
+
+        for field_name, field_type in dedup_fields:
+            try:
+                cursor.execute(f"ALTER TABLE papers ADD COLUMN {field_name} {field_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        # 创建去重关系表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS duplicate_groups (
+                group_id TEXT PRIMARY KEY,
+                canonical_paper_id TEXT NOT NULL,
+                duplicate_paper_ids TEXT NOT NULL,
+                similarity_scores TEXT,
+                detection_method TEXT,
+                merge_status TEXT DEFAULT 'pending',
+                created_at TEXT,
+                FOREIGN KEY (canonical_paper_id) REFERENCES papers(paper_id)
+            )
+        """)
+
         # Create indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_papers_week 
@@ -340,6 +372,10 @@ def upsert_paper(
     filtered_out: Optional[int] = None,
     filter_reason: Optional[str] = None,
     evaluated_at: Optional[str] = None,
+    # 去重参数
+    title_hash: Optional[str] = None,
+    arxiv_id_normalized: Optional[str] = None,
+    duplicate_of: Optional[str] = None,
 ) -> Paper:
     """
     Insert or update a paper/content record.
@@ -455,6 +491,17 @@ def upsert_paper(
                 updates.append("evaluated_at = ?")
                 values.append(evaluated_at)
 
+            # 去重字段更新
+            if title_hash is not None:
+                updates.append("title_hash = ?")
+                values.append(title_hash)
+            if arxiv_id_normalized is not None:
+                updates.append("arxiv_id_normalized = ?")
+                values.append(arxiv_id_normalized)
+            if duplicate_of is not None:
+                updates.append("duplicate_of = ?")
+                values.append(duplicate_of)
+
             updates.append("updated_at = ?")
             values.append(now)
             values.append(paper_id)
@@ -474,8 +521,9 @@ def upsert_paper(
                     content_type, source_url, github_stars, github_language, github_description,
                     news_source, news_url, bilibili_published, douyin_published,
                     quality_score, citation_score, venue_score, recency_score, quality_reasons,
-                    filtered_out, filter_reason, evaluated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    filtered_out, filter_reason, evaluated_at,
+                    title_hash, arxiv_id_normalized, duplicate_of
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 paper_id, week_id, title, hf_url, pdf_url, pdf_path,
                 pdf_sha256, notebooklm_note_name, video_path, slides_path, summary,
@@ -483,7 +531,8 @@ def upsert_paper(
                 content_type or "PAPER", source_url, github_stars, github_language, github_description,
                 news_source, news_url, bilibili_published or 0, douyin_published or 0,
                 quality_score, citation_score, venue_score, recency_score, quality_reasons,
-                filtered_out or 0, filter_reason, evaluated_at
+                filtered_out or 0, filter_reason, evaluated_at,
+                title_hash, arxiv_id_normalized, duplicate_of
             ))
             logger.debug(f"Inserted paper: {paper_id}")
 
@@ -632,6 +681,121 @@ def list_papers_by_quality(
             params.extend(clause_params)
 
         query += " ORDER BY quality_score DESC, updated_at DESC"
+
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        return [Paper(**dict(row)) for row in rows]
+
+
+# =============================================================================
+# Deduplication Operations
+# =============================================================================
+
+def save_duplicate_group(
+    group_id: str,
+    canonical_paper_id: str,
+    duplicate_paper_ids: list[str],
+    similarity_scores: dict,
+    detection_method: str,
+    created_at: str
+) -> None:
+    """保存重复组到数据库"""
+    import json
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO duplicate_groups (
+                group_id, canonical_paper_id, duplicate_paper_ids,
+                similarity_scores, detection_method, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            group_id,
+            canonical_paper_id,
+            json.dumps(duplicate_paper_ids),
+            json.dumps(similarity_scores),
+            detection_method,
+            created_at
+        ))
+
+        logger.debug(f"Saved duplicate group: {group_id}")
+
+
+def get_duplicate_groups(
+    status: Optional[str] = None,
+    limit: Optional[int] = None
+) -> list[dict]:
+    """获取重复组列表"""
+    import json
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM duplicate_groups WHERE 1=1"
+        params = []
+
+        if status:
+            query += " AND merge_status = ?"
+            params.append(status)
+
+        query += " ORDER BY created_at DESC"
+
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        groups = []
+        for row in rows:
+            row_dict = dict(row)
+            # 解析JSON字段
+            row_dict['duplicate_paper_ids'] = json.loads(row_dict['duplicate_paper_ids'])
+            if row_dict['similarity_scores']:
+                row_dict['similarity_scores'] = json.loads(row_dict['similarity_scores'])
+            groups.append(row_dict)
+
+        return groups
+
+
+def mark_as_duplicate(paper_id: str, canonical_paper_id: str) -> None:
+    """标记论文为重复项"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE papers
+            SET duplicate_of = ?, updated_at = ?
+            WHERE paper_id = ?
+        """, (canonical_paper_id, now_iso(), paper_id))
+
+        logger.debug(f"Marked {paper_id} as duplicate of {canonical_paper_id}")
+
+
+def get_non_duplicate_papers(
+    week_id: Optional[str] = None,
+    limit: Optional[int] = None
+) -> list[Paper]:
+    """获取非重复的论文列表"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM papers WHERE duplicate_of IS NULL"
+        params = []
+
+        if week_id:
+            clause, clause_params = _build_week_id_clause(week_id)
+            query += f" AND {clause}"
+            params.extend(clause_params)
+
+        query += " ORDER BY updated_at DESC"
 
         if limit:
             query += " LIMIT ?"
