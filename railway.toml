@@ -1,0 +1,19 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "apd run --week $(date +%Y-W%V)"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "apd-worker"
+source = "."
+
+[services.envs]
+HF_TOKEN = { required = true }
+HF_USERNAME = { required = true }
+HF_DATASET_NAME = { default = "paper-digest-videos" }
+MIN_QUALITY_SCORE = { default = "60.0" }
+DATA_DIR = { default = "/app/data" }

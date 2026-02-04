@@ -61,6 +61,15 @@ BILIBILI_LOGIN_URL = "https://passport.bilibili.com/login"
 BILIBILI_CREATOR_URL = "https://member.bilibili.com/platform/upload/video/frame"
 BILIBILI_AUTH_PATH = DATA_DIR / ".bilibili_auth.json"
 
+# 小红书
+XIAOHONGSHU_LOGIN_URL = "https://creator.xiaohongshu.com/login"
+XIAOHONGSHU_CREATOR_URL = "https://creator.xiaohongshu.com"
+XIAOHONGSHU_AUTH_PATH = DATA_DIR / ".xiaohongshu_auth.json"
+
+# 抖音
+DOUYIN_LOGIN_URL = "https://creator.douyin.com/creator-micro/home"
+DOUYIN_AUTH_PATH = DATA_DIR / ".douyin_auth.json"
+
 # =============================================================================
 # Defaults
 # =============================================================================
@@ -223,3 +232,32 @@ class RecommendationConfig:
     # 用户分类阈值（交互次数）
     NEW_USER_THRESHOLD = 5       # 新用户：< 5次交互
     ACTIVE_USER_THRESHOLD = 20   # 活跃用户：>= 20次交互
+
+
+# =============================================================================
+# Publishing Platform Configuration
+# =============================================================================
+
+# 发布模式配置
+AUTO_PUBLISH = os.getenv("AUTO_PUBLISH", "false").lower() == "true"
+# 默认使用半自动模式（false）：脚本完成上传和信息填写后暂停，等待用户手动点击发布
+# 设置为true则自动点击发布按钮（不推荐，可能导致误发布）
+
+# 平台标签配置
+DEFAULT_TAGS = {
+    "paper": ["AI", "论文解读", "学术", "机器学习", "深度学习"],
+    "github": ["开源项目", "GitHub", "编程", "技术分享"],
+    "news": ["科技资讯", "热点", "新闻"],
+}
+
+# 视频描述模板
+VIDEO_DESCRIPTION_TEMPLATE = """
+{title}
+
+{abstract}
+
+📚 原文链接: {url}
+🤖 由Auto-Paper-Digest自动生成
+
+#AI #论文解读 #学术分享
+"""

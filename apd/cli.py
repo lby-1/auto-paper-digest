@@ -1480,6 +1480,222 @@ def publish_bilibili(
 
 
 # =============================================================================
+# 新增命令：小红书登录
+# =============================================================================
+
+@main.command("xiaohongshu-login")
+def xiaohongshu_login() -> None:
+    """
+    Open browser for Xiaohongshu Creator login.
+
+    This will open a headful browser for you to scan the QR code.
+    The session will be saved for future automated publishing.
+    """
+    from .xiaohongshu_bot import XiaohongshuBot
+
+    click.echo("🔐 Opening browser for Xiaohongshu login...")
+    click.echo("   Please scan the QR code to log in to Creator Center.")
+    click.echo("   The session will be saved for future use.")
+    click.echo()
+
+    with XiaohongshuBot(headless=False) as bot:
+        if bot.login():
+            click.echo("✅ Xiaohongshu login successful! Session saved.")
+        else:
+            click.echo("❌ Xiaohongshu login failed or timed out.", err=True)
+            sys.exit(1)
+
+
+# =============================================================================
+# 新增命令：小红书发布
+# =============================================================================
+
+@main.command("publish-xiaohongshu")
+@click.option(
+    "--week", "-w",
+    default=None,
+    help="Week ID (e.g., 2026-01). Defaults to current week if no --date specified."
+)
+@click.option(
+    "--date", "-d",
+    default=None,
+    help="Date (e.g., 2026-01-20). Publish videos for a specific date."
+)
+@click.option(
+    "--paper-id", "-p",
+    help="Content ID of a specific item to publish."
+)
+@click.option(
+    "--force", "-f",
+    is_flag=True,
+    help="Force re-publish even if already published."
+)
+@click.option(
+    "--headful",
+    is_flag=True,
+    help="Run in headful mode (visible browser, required for manual publish)."
+)
+@click.option(
+    "--auto-publish",
+    is_flag=True,
+    help="Automatically click publish button (default: manual publish)."
+)
+def publish_xiaohongshu(
+    week: Optional[str],
+    date: Optional[str],
+    paper_id: Optional[str],
+    force: bool,
+    headful: bool,
+    auto_publish: bool
+) -> None:
+    """
+    Publish videos to Xiaohongshu (Little Red Book) Creator Center.
+
+    By default, uses semi-automatic mode: uploads video and fills in information,
+    then pauses for you to manually click the publish button.
+
+    Use --auto-publish to automatically click publish (not recommended).
+
+    Examples:
+        apd publish-xiaohongshu --date 2026-01-20 --headful
+        apd publish-xiaohongshu --week 2026-03 --headful --auto-publish
+    """
+    from .xiaohongshu_bot import XiaohongshuBot
+    from .db import get_paper, list_papers, update_paper
+    from .config import DEFAULT_TAGS
+
+    logger = get_logger()
+
+    # Validate mutually exclusive options
+    if week and date:
+        click.echo("❌ Error: --week and --date are mutually exclusive.", err=True)
+        sys.exit(1)
+
+    # Determine period_id (date or week)
+    if date:
+        period_id = date
+        period_type = "date"
+    else:
+        period_id = week or get_current_week_id()
+        period_type = "week"
+
+    # Identify items to publish
+    if paper_id:
+        papers = [get_paper(paper_id)]
+        if not papers[0]:
+            click.echo(f"❌ Item {paper_id} not found in database.", err=True)
+            sys.exit(1)
+    else:
+        # Publish all items for the period that have videos
+        papers = list_papers(week_id=period_id, status=Status.VIDEO_OK)
+
+    if not papers:
+        click.echo(f"⚠️  No items with videos found for {period_type} {period_id}.")
+        click.echo("   Run 'apd download-video' first.")
+        return
+
+    # Filter out already published (unless --force)
+    if not force:
+        papers = [p for p in papers if not p.xiaohongshu_published]
+        if not papers:
+            click.echo(f"✅ All videos for {period_type} {period_id} already published to Xiaohongshu.")
+            click.echo("   Use --force to re-publish.")
+            return
+
+    click.echo(f"🚀 Publishing {len(papers)} videos to Xiaohongshu...")
+    if not auto_publish:
+        click.echo("📌 Semi-automatic mode: You will manually click publish button")
+    click.echo()
+
+    with XiaohongshuBot(headless=not headful) as bot:
+        # Check login first
+        if not bot._is_logged_in():
+            click.echo("❌ Not logged into Xiaohongshu. Please run 'apd xiaohongshu-login' first.", err=True)
+            sys.exit(1)
+
+        success_count = 0
+        total_papers = len(papers)
+
+        for idx, paper in enumerate(papers, 1):
+            click.echo(f"\n{'='*60}")
+            click.echo(f"📹 Processing video {idx}/{total_papers}")
+
+            if not paper.video_path:
+                click.echo(f"⏭️  Skipping {paper.paper_id}: No video path found.")
+                continue
+
+            video_path = Path(paper.video_path)
+            if not video_path.exists():
+                click.echo(f"❌ Skipping {paper.paper_id}: Video file not found at {video_path}")
+                continue
+
+            click.echo(f"📤 Uploading {paper.paper_id}: {paper.title}")
+
+            # Construct description
+            if paper.summary:
+                description = f"{paper.summary}\n\n"
+            else:
+                description = ""
+
+            # Add source info based on content type
+            if paper.content_type == "GITHUB":
+                description += f"GitHub: {paper.source_url}\n"
+                description += f"⭐ Stars: {paper.github_stars}\n"
+                if paper.github_language:
+                    description += f"Language: {paper.github_language}\n"
+            elif paper.content_type == "NEWS":
+                description += f"来源: {paper.news_source}\n"
+                description += f"原文: {paper.news_url}\n"
+            else:  # PAPER
+                description += f"📚 arXiv: {paper.paper_id}\n"
+                if paper.pdf_url:
+                    description += f"PDF: {paper.pdf_url}\n"
+
+            description += "\n🤖 由 Auto-Paper-Digest 自动生成"
+
+            # Tags based on content type
+            if paper.content_type == "GITHUB":
+                tags = DEFAULT_TAGS.get("github", ["GitHub", "开源项目", "编程"])
+                if paper.github_language:
+                    tags = tags[:3] + [paper.github_language]
+            elif paper.content_type == "NEWS":
+                tags = DEFAULT_TAGS.get("news", ["热点", "新闻", "资讯"])
+            else:  # PAPER
+                tags = DEFAULT_TAGS.get("paper", ["AI", "论文解读", "学术", "科技"])
+
+            # Publish video
+            try:
+                result = bot.publish_video(
+                    video_path=video_path,
+                    title=paper.title[:100],  # 小红书标题限制100字符
+                    description=description[:1000],  # 小红书描述限制1000字符
+                    tags=tags[:5],  # 最多5个标签
+                    auto_publish=auto_publish
+                )
+
+                if result.get('success'):
+                    click.echo(f"✅ Successfully published {paper.paper_id}!")
+
+                    # Update database
+                    update_paper(
+                        paper_id=paper.paper_id,
+                        xiaohongshu_published=1,
+                        xiaohongshu_note_id=result.get('note_id'),
+                        xiaohongshu_url=result.get('url')
+                    )
+                    success_count += 1
+                else:
+                    click.echo(f"❌ Failed to publish {paper.paper_id}: {result.get('error', 'Unknown error')}")
+
+            except Exception as e:
+                click.echo(f"❌ Error publishing {paper.paper_id}: {e}")
+                logger.error(f"Xiaohongshu publish error: {e}", exc_info=True)
+
+        click.echo()
+        click.echo(f"🎉 Xiaohongshu publish complete: {success_count}/{total_papers} successful.")
+
+
+# =============================================================================
 # Deduplication Commands
 # =============================================================================
 

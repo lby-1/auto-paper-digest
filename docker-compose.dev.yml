@@ -1,0 +1,59 @@
+# Development environment with hot-reload and debugging
+services:
+  apd-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apd-dev
+    volumes:
+      # Mount source code for hot-reload
+      - ./apd:/app/apd
+      - ./tests:/app/tests
+      - ./data:/app/data
+      - ./config:/app/config
+      - apd-dev-profiles:/app/data/profiles
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - HF_USERNAME=${HF_USERNAME}
+      - HF_DATASET_NAME=${HF_DATASET_NAME:-paper-digest-videos}
+      - MIN_QUALITY_SCORE=${MIN_QUALITY_SCORE:-60.0}
+      - DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+    command: bash
+    stdin_open: true
+    tty: true
+    ports:
+      - "5678:5678"  # Debugger port
+    networks:
+      - apd-dev-network
+
+  # Portal with hot-reload
+  portal-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apd-portal-dev
+    volumes:
+      - ./portal:/app/portal
+      - ./data:/app/data:ro
+    environment:
+      - DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+      - GRADIO_SERVER_NAME=0.0.0.0
+    working_dir: /app/portal
+    command: python app.py
+    ports:
+      - "${PORTAL_PORT:-7860}:7860"
+    networks:
+      - apd-dev-network
+
+volumes:
+  apd-dev-profiles:
+    name: apd-dev-browser-profiles
+
+networks:
+  apd-dev-network:
+    name: apd-dev-network
+    driver: bridge

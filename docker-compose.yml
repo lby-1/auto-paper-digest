@@ -1,0 +1,105 @@
+services:
+  # Main APD service
+  apd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auto-paper-digest
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - apd-profiles:/app/data/profiles
+    environment:
+      # HuggingFace
+      - HF_TOKEN=${HF_TOKEN}
+      - HF_USERNAME=${HF_USERNAME}
+      - HF_DATASET_NAME=${HF_DATASET_NAME:-paper-digest-videos}
+
+      # Quality Control
+      - MIN_QUALITY_SCORE=${MIN_QUALITY_SCORE:-60.0}
+      - MIN_CITATIONS=${MIN_CITATIONS:-0}
+      - MIN_GITHUB_STARS=${MIN_GITHUB_STARS:-100}
+
+      # Optional APIs
+      - S2_API_KEY=${S2_API_KEY:-}
+      - AZURE_TTS_KEY=${AZURE_TTS_KEY:-}
+      - AZURE_TTS_REGION=${AZURE_TTS_REGION:-eastus}
+
+      # Config
+      - DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+    command: tail -f /dev/null  # Keep container running
+    restart: unless-stopped
+    networks:
+      - apd-network
+
+  # Scheduler service for automated tasks
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apd-scheduler
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - apd-profiles:/app/data/profiles
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - HF_USERNAME=${HF_USERNAME}
+      - HF_DATASET_NAME=${HF_DATASET_NAME:-paper-digest-videos}
+      - MIN_QUALITY_SCORE=${MIN_QUALITY_SCORE:-60.0}
+      - DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+      # Cron schedule: Every Monday at 9:00 AM
+      - SCHEDULE_CRON=${SCHEDULE_CRON:-0 9 * * 1}
+    command: >
+      sh -c "
+      echo 'Scheduler starting...';
+      while true; do
+        echo 'Running weekly digest...';
+        apd upload --week \$(date +%Y-W%V) --max 20;
+        sleep 3600;
+        apd download-video --week \$(date +%Y-W%V);
+        sleep 3600;
+        apd publish --week \$(date +%Y-W%V);
+        echo 'Weekly digest completed. Sleeping for 7 days...';
+        sleep 604800;
+      done
+      "
+    restart: unless-stopped
+    depends_on:
+      - apd
+    networks:
+      - apd-network
+
+  # Gradio portal web interface
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apd-portal
+    volumes:
+      - ./data:/app/data:ro
+    environment:
+      - DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+      - HF_USERNAME=${HF_USERNAME}
+      - HF_DATASET_NAME=${HF_DATASET_NAME:-paper-digest-videos}
+    working_dir: /app/portal
+    command: python app.py
+    ports:
+      - "${PORTAL_PORT:-7860}:7860"
+    restart: unless-stopped
+    depends_on:
+      - apd
+    networks:
+      - apd-network
+
+volumes:
+  apd-profiles:
+    name: apd-browser-profiles
+
+networks:
+  apd-network:
+    name: apd-network
+    driver: bridge

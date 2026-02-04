@@ -116,6 +116,9 @@ class Paper:
     # 新增：发布状态
     bilibili_published: int = 0  # 0=未发布, 1=已发布
     douyin_published: int = 0    # 0=未发布, 1=已发布
+    xiaohongshu_published: int = 0  # 0=未发布, 1=已发布
+    xiaohongshu_note_id: Optional[str] = None  # 小红书笔记ID
+    xiaohongshu_url: Optional[str] = None      # 小红书笔记URL
 
     # 质量控制字段（新增）
     quality_score: Optional[float] = None        # 综合质量评分 0-100
@@ -258,6 +261,21 @@ def init_db() -> None:
 
         try:
             cursor.execute("ALTER TABLE papers ADD COLUMN douyin_published INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN xiaohongshu_published INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN xiaohongshu_note_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE papers ADD COLUMN xiaohongshu_url TEXT")
         except sqlite3.OperationalError:
             pass
 
